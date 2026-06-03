@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personal Health Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tambahkan Chart.js via CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen font-sans">
+
+    <div class="container mx-auto px-4 py-8">
+        <header class="mb-8 border-b border-gray-800 pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-emerald-400">🤖 Personal Health Tracker</h1>
+                <p class="text-gray-400 text-sm">Monitoring Progres Lari & Nutrisi Automatis</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <a href="/profile" class="bg-gray-800 hover:bg-gray-700 text-cyan-400 text-xs px-3 py-2 rounded-lg border border-gray-700 transition-colors font-semibold flex items-center gap-1.5">
+                    👤 Edit Profil AI
+                </a>
+                <div class="bg-gray-800 px-4 py-2 rounded-lg border border-gray-700 text-xs text-gray-400">
+                    Status Server: <span class="text-emerald-400 font-bold">● Active</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- AREA GRAFIK TREN LARI -->
+        <!-- AREA GRAFIK TREN LARI & ACWR -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            
+            <!-- Kiri: Training Load Lama -->
+            <div class="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
+                <h3 class="text-lg font-semibold text-emerald-400 mb-4">📈 Tren Beban Latihan (Training Load)</h3>
+                <div class="relative" style="height: 300px;">
+                    <canvas id="trainingLoadChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Kanan: ACWR Baru -->
+            <div class="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
+                <div class="flex justify-between items-start mb-4">
+                    <h3 class="text-lg font-semibold text-rose-400">⚠️ Risiko Cedera (ACWR)</h3>
+                    <span class="text-[10px] bg-rose-500/20 text-rose-400 px-2 py-1 rounded border border-rose-500/30">Target Aman: 0.8 - 1.3</span>
+                </div>
+                <div class="relative" style="height: 300px;">
+                    <canvas id="acwrChart"></canvas>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 mb-6">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-2">
+                <div>
+                    <h3 class="text-lg font-semibold text-cyan-400">🎯 Panduan Zona Latihan & Prediksi Target Pace</h3>
+                    <p class="text-gray-400 text-xs">Dihitung otomatis berdasarkan profil denyut jantung tertinggi dan performa lari terakhirmu</p>
+                </div>
+                <div class="bg-cyan-950/40 text-cyan-400 text-[11px] font-semibold px-3 py-1 rounded border border-cyan-800/50">
+                    Sistem: Formula Karvonen Modifikasi
+                </div>
+            </div>
+            
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm text-gray-300">
+                    <thead class="text-xs uppercase bg-gray-700 text-gray-400">
+                        <tr>
+                            <th class="p-3">Zona Latihan</th>
+                            <th class="p-3">Target Heart Rate</th>
+                            <th class="p-3">Prediksi Target Pace</th>
+                            <th class="p-3">Fungsi & Fokus Utama Latihan</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for z in zones_data %}
+                        <tr class="border-b border-gray-700 hover:bg-gray-750/40 transition-colors">
+                            <td class="p-3 {{ z['color'] }}">{{ z['zone'] }}</td>
+                            <td class="p-3 font-semibold text-white">{{ z['hr'] }}</td>
+                            <td class="p-3 font-mono text-amber-400 font-bold">⏱️ {{ z['pace'] }}</td>
+                            <td class="p-3 text-xs text-gray-400 leading-relaxed">{{ z['desc'] }}</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="4" class="p-4 text-center text-gray-500 italic">Belum ada data aktivitas lari untuk memprediksi target zona latihan, cuy. Lu kudu sinkronisasi data lari pertama lu dulu ya!</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-gray-700 pt-4">
+            <div class="bg-gray-800/40 p-4 rounded-lg border border-emerald-500/20">
+                <h4 class="text-xs font-semibold uppercase tracking-wider text-emerald-400 mb-1">📋 Evaluasi Latihan ({{ waktu_terakhir_lari }})</h4>
+                <p class="text-sm text-gray-300 leading-relaxed">{{ evaluasi_hari_ini }}</p>
+            </div>
+
+            <div class="bg-gray-800/60 p-4 rounded-lg border border-gray-700 relative overflow-hidden shadow-md">
+                
+                <div class="absolute top-0 left-0 h-1.5 bg-gray-700 w-full"></div>
+                <div class="absolute top-0 left-0 h-1.5 bg-current w-[{{ readiness_score }}%] {{ readiness_color }} transition-all duration-1000 shadow-[0_0_10px_currentColor]"></div>
+                
+                <div class="flex justify-between items-center mb-1 mt-1">
+                    <h4 class="text-xs font-semibold uppercase tracking-wider {{ readiness_color }}">🔋 Training Readiness</h4>
+                    <span class="text-2xl font-black {{ readiness_color }}">{{ readiness_score }}%</span>
+                </div>
+                <p class="text-sm text-gray-300 leading-relaxed">{{ readiness_msg }}</p>
+            </div>
+        </div>
+
+        <!-- GRID UTAMA -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            
+            <!-- SEKSI LAZARUS LARI -->
+            <div class="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 flex flex-col h-full">
+                <h2 class="text-xl font-semibold mb-4 text-amber-400">🏃‍♂️ Log Aktivitas Strava Terbaru</h2>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm text-gray-300">
+                        <thead class="text-xs uppercase bg-gray-700 text-gray-400">
+                            <tr>
+                                <th class="p-3">Tanggal</th>
+                                <th class="p-3">Jarak</th>
+                                <th class="p-3">Pace</th>
+                                <th class="p-3">Avg HR</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for w in workouts %}
+                            <tr class="border-b border-gray-700 hover:bg-gray-750">
+                                <td class="p-3 font-medium text-white">{{ w['Tanggal'] }}</td>
+                                <td class="p-3 text-emerald-400 font-bold">{{ w['Jarak (KM)'] }} KM</td>
+                                <td class="p-3">⏱️ {{ w['Avg Pace (min/km)'] }}</td>
+                                <td class="p-3">💓 {{ w['Avg HR (BPM)'] }} bpm</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="4" class="p-3 text-center text-gray-500">Belum ada data olahraga ter-sync, cuy.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 flex flex-col h-full">
+                <h2 class="text-xl font-semibold mb-4 text-purple-400">🏋️‍♂️ Log Strength Training (Strava)</h2>
+                <table class="w-full text-left text-sm text-gray-300">
+                    <thead class="text-xs uppercase bg-gray-700 text-gray-400">
+                        <tr>
+                            <th class="p-3">Tanggal</th>
+                            <th class="p-3">Durasi</th>
+                            <th class="p-3">Avg HR</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for s in strengths %}
+                        <tr class="border-b border-gray-700 hover:bg-gray-750">
+                            <td class="p-3 font-medium text-white">{{ s['Tanggal'] }}</td>
+                            <td class="p-3 text-purple-400 font-bold">{{ s['Durasi (Menit)'] }} Menit</td>
+                            <td class="p-3">💓 {{ s['Avg HR (BPM)'] }} bpm</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="3" class="p-8 text-center text-gray-500 italic bg-gray-800/50 rounded-b-xl">
+                                🏋️‍♂️ Belum ada sesi angkat beban ter-sync, cuy.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- SEKSI LOG NUTRISI YANG SUDAH DI-PARSING -->
+            <div class="col-span-1 lg:col-span-2 grid grid-cols-1 md:grid-cols-4 gap-6 mb-4">
+                
+                <div class="bg-gray-800 p-5 rounded-xl shadow-lg border border-gray-700 md:col-span-2">
+                    <h3 class="text-md font-semibold text-amber-400 mb-2">🔥 Tren Kalori Harian (7 Hari Terakhir)</h3>
+                    <div class="relative" style="height: 220px;">
+                        <canvas id="caloriesChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="bg-gray-800 p-5 rounded-xl shadow-lg border border-gray-700 md:col-span-1 flex flex-col justify-between">
+                    <h3 class="text-md font-semibold text-cyan-400 mb-2 text-center">📊 Rasio Makro Mingguan</h3>
+                    <div class="relative flex-grow flex justify-center items-center" style="height: 140px;">
+                        <canvas id="macrosChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="bg-gray-800 p-5 rounded-xl shadow-lg border border-gray-700 md:col-span-1 flex flex-col justify-between">
+                    <h3 class="text-md font-semibold text-emerald-400 mb-2 text-center">📅 Makro Nutirisi Hari Ini</h3>
+                    <div class="relative flex-grow flex justify-center items-center" style="height: 140px;">
+                        <canvas id="macrosTodayChart"></canvas>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="col-span-1 lg:col-span-2 bg-gray-800 p-4 rounded-xl shadow-lg border border-cyan-800/30 mb-6">
+                <h4 class="text-xs font-semibold uppercase tracking-wider text-cyan-400 mb-1">🤖 Analisis Nutrisi AI (Evaluasi Rata-Rata)</h4>
+                <p class="text-sm text-gray-300 leading-relaxed">{{ evaluasi_nutrisi_mingguan }}</p>
+            </div>
+            <div class="col-span-1 lg:col-span-2 bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
+                
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-semibold text-cyan-400">🍳 Log Nutrisi Harian</h2>
+                    <button onclick="document.getElementById('modalAddNutrisi').classList.remove('hidden')" class="bg-cyan-600 hover:bg-cyan-500 text-white text-xs px-3 py-1.5 rounded-lg transition-colors font-semibold shadow-md">
+                        ➕ Tambah Manual
+                    </button>
+                </div>
+
+                <div class="space-y-4">
+                    {% for n in nutritions %}
+                    <div class="bg-gray-700 p-4 rounded-lg border-l-4 border-cyan-500 shadow-sm relative group">
+                        
+                        <form action="/delete_nutrition" method="POST" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <input type="hidden" name="tanggal" value="{{ n['tanggal'] }}">
+                            <button type="submit" class="bg-red-500 hover:bg-red-400 text-white p-1 rounded text-xs" title="Hapus Data" onclick="return confirm('Yakin mau hapus log makan ini, cuy?')">
+                                🗑️
+                            </button>
+                        </form>
+
+                        <div class="flex justify-between items-center mb-2 pr-8">
+                            <span class="text-xs text-gray-400">{{ n['tanggal'] }}</span>
+                            <span class="text-xs px-2 py-0.5 bg-cyan-950 text-cyan-300 rounded border border-cyan-800">Porsi: {{ n['catatan'] }}</span>
+                        </div>
+                        
+                        <div class="grid grid-cols-4 gap-2 text-center text-xs mb-3">
+                            <div class="bg-gray-800 p-1.5 rounded"><span class="block text-gray-400">🔥 Kalori</span><span class="font-bold text-amber-400">{{ n['kalori'] }}</span></div>
+                            <div class="bg-gray-800 p-1.5 rounded"><span class="block text-gray-400">💪 Pro</span><span class="font-bold text-emerald-400">{{ n['protein'] }}</span></div>
+                            <div class="bg-gray-800 p-1.5 rounded"><span class="block text-gray-400">🍞 Karbo</span><span class="font-bold text-cyan-400">{{ n['karbo'] }}</span></div>
+                            <div class="bg-gray-800 p-1.5 rounded"><span class="block text-gray-400">🥑 Lemak</span><span class="font-bold text-purple-400">{{ n['lemak'] }}</span></div>
+                        </div>
+                        <p class="text-xs text-gray-300 leading-relaxed bg-gray-850 p-2 rounded border border-gray-600"><span class="font-semibold text-cyan-400">Analisis:</span> {{ n['keterangan'] }}</p>
+                    </div>
+                    {% else %}
+                    <p class="text-sm text-gray-500 text-center py-4">Belum ada log foto makanan yang masuk, cuy.</p>
+                    {% endfor %}
+                </div>
+
+            </div>
+            <div id="modalAddNutrisi" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm">
+                <div class="bg-gray-800 border border-gray-700 p-6 rounded-xl shadow-2xl w-full max-w-md">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-bold text-cyan-400">➕ Input Nutrisi Manual</h3>
+                        <button onclick="document.getElementById('modalAddNutrisi').classList.add('hidden')" class="text-gray-400 hover:text-white font-bold text-xl">&times;</button>
+                    </div>
+                    
+                    <form action="/add_nutrition" method="POST" enctype="multipart/form-data" class="space-y-4">
+                        
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">Upload Foto Makanan (Opsional)</label>
+                            <input type="file" name="foto" accept="image/*" class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-cyan-600 file:text-white hover:file:bg-cyan-500 transition cursor-pointer">
+                        </div>
+
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">Keterangan / Nama Makanan / Porsi</label>
+                            <input type="text" name="catatan" required placeholder="Misal: Nasi Padang ayam pop, ukuran normal" class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm text-white focus:outline-none focus:border-cyan-500">
+                        </div>
+                        
+                        <p class="text-xs text-gray-500 italic mt-2">✨ Coach AI Gemini akan otomatis membedah kalori & makro-nutrisinya.</p>
+
+                        <button type="submit" onclick="this.innerHTML='⏳ AI Sedang Menganalisis...'; this.classList.add('opacity-75');" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 px-4 rounded-lg transition-colors mt-4 shadow-lg flex justify-center items-center gap-2">
+                            <span>🤖 Analisis & Simpan</span>
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- SCRIPT CHART.JS UNTUK INJEKSI DATA DARI FASTAPI -->
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            // training load
+            const ctx = document.getElementById('trainingLoadChart').getContext('2d');
+            
+            // Efek gradasi warna di bawah garis grafik
+            const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+            gradient.addColorStop(0, 'rgba(16, 185, 129, 0.3)'); // Hijau emerald
+            gradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)'); // Transparan
+
+            // Injeksi data langsung dari Jinja2 FastAPI
+            const labelsData = {{ graph_data.dates | tojson }};
+            const loadsData = {{ graph_data.loads | tojson }};
+
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labelsData,
+                    datasets: [{
+                        label: 'Training Load Score',
+                        data: loadsData,
+                        borderColor: '#10B981', 
+                        borderWidth: 3,
+                        backgroundColor: gradient, 
+                        fill: true,
+                        tension: 0.3, 
+                        pointBackgroundColor: '#10B981',
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false } 
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#9CA3AF' }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#9CA3AF' },
+                            title: {
+                                display: true,
+                                text: 'Load Score (Durasi x HR / 100)',
+                                color: '#6B7280',
+                                font: { size: 11 }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // ==========================================
+            // GRAFIK BARU: ACWR (RISIKO CEDERA)
+            // ==========================================
+            const ctxAcwr = document.getElementById('acwrChart').getContext('2d');
+            const acwrLabels = {{ acwr_chart_data.dates | tojson }};
+            const acwrData = {{ acwr_chart_data.acwr | tojson }};
+
+            new Chart(ctxAcwr, {
+                type: 'line',
+                data: {
+                    labels: acwrLabels,
+                    datasets: [{
+                        label: 'ACWR Score',
+                        data: acwrData,
+                        borderColor: '#FB7185', // Warna Merah Muda/Rose
+                        backgroundColor: 'rgba(251, 113, 133, 0.1)',
+                        borderWidth: 3,
+                        tension: 0.4,
+                        fill: true,
+                        pointBackgroundColor: '#FB7185',
+                        pointRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 2.5, // Maksimal tinggi biar garis gampang dibaca
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#9CA3AF' },
+                            title: { display: true, text: 'Rasio (Acute / Chronic)', color: '#6B7280', font: {size: 11} }
+                        },
+                        x: { grid: { display: false }, ticks: { color: '#9CA3AF', font: {size: 10} } }
+                    }
+                }
+            });
+
+            // ==========================================
+            // 2. GRAFIK BAR: KALORI HARIAN (YANG BARU)
+            // ==========================================
+            const ctxCal = document.getElementById('caloriesChart').getContext('2d');
+            const calLabels = {{ nutrisi_chart_data.dates | tojson }};
+            const calData = {{ nutrisi_chart_data.kalori | tojson }};
+
+            new Chart(ctxCal, {
+                type: 'bar',
+                data: {
+                    labels: calLabels,
+                    datasets: [{
+                        label: 'Total Kalori (kkal)',
+                        data: calData,
+                        backgroundColor: 'rgba(245, 158, 11, 0.7)',
+                        borderColor: '#F59E0B',
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#9CA3AF', font: {size: 10} } },
+                        y: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#9CA3AF' } }
+                    }
+                }
+            });
+
+
+            // ==========================================
+            // 3. GRAFIK DOUGHNUT: MAKRO NUTRISI (YANG BARU)
+            // ==========================================
+            const ctxMacro = document.getElementById('macrosChart').getContext('2d');
+            const macroTotals = {{ macro_totals | tojson }}; // [Pro, Carb, Fat]
+
+            new Chart(ctxMacro, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Protein (g)', 'Karbohidrat (g)', 'Lemak (g)'],
+                    datasets: [{
+                        data: macroTotals,
+                        backgroundColor: ['#10B981', '#06B6D4', '#A855F7'],
+                        borderWidth: 0,
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '70%',
+                    plugins: {
+                        legend: { 
+                            position: 'bottom',
+                            labels: { color: '#D1D5DB', boxWidth: 12, padding: 10, font: {size: 10} }
+                        }
+                    }
+                }
+            });
+
+            // ==========================================
+            // 4. GRAFIK DOUGHNUT: MAKRO NUTRISI HARIAN (WITH GRAMS!)
+            // ==========================================
+            const ctxMacroToday = document.getElementById('macrosTodayChart').getContext('2d');
+            const macroTodayData = {{ macro_today | tojson }}; // Format: [Pro, Carb, Fat]
+
+            new Chart(ctxMacroToday, {
+                type: 'doughnut',
+                data: {
+                    // DI SINI KITA TULIS JUMLAH GRAMNYA LANGSUNG DI LABEL LEGENDA! 🎯
+                    labels: [
+                        `Protein (${macroTodayData[0]}g)`, 
+                        `Karbohidrat (${macroTodayData[1]}g)`, 
+                        `Lemak (${macroTodayData[2]}g)`
+                    ],
+                    datasets: [{
+                        data: macroTodayData,
+                        backgroundColor: [
+                            '#10B981', // Emerald (Protein)
+                            '#06B6D4', // Cyan (Karbo)
+                            '#A855F7'  // Purple (Lemak)
+                        ],
+                        borderWidth: 0,
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '70%',
+                    plugins: {
+                        legend: { 
+                            position: 'bottom',
+                            labels: { color: '#D1D5DB', boxWidth: 10, padding: 6, font: {size: 9} }
+                        }
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>
