@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Gemini Health Agent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen">
+
+    <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-xl max-w-sm w-full text-center">
+        <div class="text-5xl mb-4">🏃‍♂️🤖</div>
+        
+        <h1 class="text-2xl font-bold tracking-tight text-white mb-2">Gemini Health Agent</h1>
+        <p class="text-sm text-slate-400 mb-8">Trisula Tracker: Telegram, Strava Cloud, & Gemini AI.</p>
+
+        <a href="/auth/login" class="w-full flex items-center justify-center gap-3 bg-white text-slate-900 hover:bg-slate-200 font-medium py-3 px-4 rounded-xl transition duration-200 shadow-md">
+            <svg class="w-5 h-5" viewBox="0 0 24 24">
+                <path fill="#EA4335" d="M12.24 10.285V14.4h6.887c-.275 1.565-1.88 4.604-6.887 4.604-4.33 0-7.866-3.577-7.866-8s3.536-8 7.866-8c2.46 0 4.105 1.025 5.047 1.926l3.227-3.111C18.29 1.709 15.49 0 12.24 0 5.58 0 0 5.37 0 12s5.58 12 12.24 12c6.96 0 11.57-4.854 11.57-11.77 0-.795-.085-1.404-.19-1.945H12.24z"/>
+            </svg>
+            Sign in with Google
+        </a>
+
+        <p class="text-xs text-slate-500 mt-8">Khusus untuk Abdullah Dzaki & Authorized Testers.</p>
+    </div>
+    <script>
+        // 1. Fungsi penangkap token dari hash URL
+        function getHashParams() {
+            let pakeHash = window.location.hash.substring(1);
+            if (!pakeHash) return null;
+            
+            return pakeHash.split('&').reduce(function (initial, item) {
+                if (item) {
+                    var parts = item.split('=');
+                    initial[parts[0]] = decodeURIComponent(parts[1]);
+                }
+                return initial;
+            }, {});
+        }
+
+        // 2. Eksekusi simpan cookie dan redirect ke dashboard utama
+        const params = getHashParams();
+        if (params && params.access_token) {
+            const maxAge = 7 * 24 * 60 * 60; // 7 Hari aman
+            document.cookie = `sb_access_token=${params.access_token}; path=/; max-age=${maxAge}; SameSite=Lax`;
+            
+            // Bersihkan sisa token di URL demi keamanan
+            window.location.hash = "";
+            // Lempar user masuk ke dashboard utama
+            window.location.href = "/";
+        }
+    </script>
+</body>
+</html>
