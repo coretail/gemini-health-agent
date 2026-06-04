@@ -10,18 +10,19 @@ import threading
 import asyncio
 import time
 
-from dotenv import load_model, load_dotenv
+from dotenv import load_dotenv
+load_dotenv()
 # ─── BUNGKAM WARNING STRAVA ─────────────────────────────────
 import logging
 logging.getLogger('stravalib').setLevel(logging.CRITICAL)
 # ──────────────────────────────────────────────────────────────────
 
 # 1. KONFIGURASI TOKEN & API KEY (Pastikan API Key Gemini Lu Bener)
-TELEGRAM_TOKEN = "8785563549:AAGD2ihX-Nj0v4Hu-icKfYHtg38LTMZ0dVU"
-STRAVA_CLIENT_ID = 253476
-STRAVA_CLIENT_SECRET = "311253551609da2f2faeeab2a08a3218e02a2cfb"
-STRAVA_REFRESH_TOKEN = "5448877768682cfd9d393e489f1f338d5bccdef3"
-GEMINI_API_KEY = "AQ.Ab8RN6ICT6ghrMxfmZMD4JzXMyp8s4vNUmKuFvUfoyKO9fj2vA"  # <── GANTI PAKE GEMINI API KEY LU
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+STRAVA_CLIENT_ID = int(os.getenv("STRAVA_CLIENT_ID")) if os.getenv("STRAVA_CLIENT_ID") else 253476
+STRAVA_CLIENT_SECRET = os.getenv("STRAVA_CLIENT_SECRET")
+STRAVA_REFRESH_TOKEN = os.getenv("STRAVA_REFRESH_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  
 
 # Inisialisasi API Bot & Gemini
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)

@@ -11,7 +11,8 @@ import pandas as pd
 import threading
 from tele_bot import bot, strava_sync
 
-from dotenv import load_model, load_dotenv
+from dotenv import load_dotenv
+load_dotenv()
 
 # SDK Gemini
 from google import genai
@@ -30,7 +31,7 @@ app = FastAPI(title="Personal Health Tracker Dashboard")
 templates = Jinja2Templates(directory="templates")
 
 # API Key Gemini Lu
-GEMINI_API_KEY = "AQ.Ab8RN6ICT6ghrMxfmZMD4JzXMyp8s4vNUmKuFvUfoyKO9fj2vA"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 class NutritionLog(BaseModel):

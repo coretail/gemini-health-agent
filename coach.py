@@ -4,10 +4,11 @@ import json
 from google import genai
 from google.genai import types
 
-from dotenv import load_model, load_dotenv
+from dotenv import load_dotenv
+load_dotenv()
 
 # 1. Pastikan API KEY lu terpasang di sini
-API_KEY = "AQ.Ab8RN6ICT6ghrMxfmZMD4JzXMyp8s4vNUmKuFvUfoyKO9fj2vA"
+API_KEY = os.getenv("GEMINI_API_KEY")
 
 DB_FOLDER = "database"
 CSV_FILE = os.path.join(DB_FOLDER, "workout_history.csv")
