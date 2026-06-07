@@ -140,7 +140,8 @@ async def strava_sync():
         "jenis_olahraga": act_type,
         "durasi_menit": float(act_duration),
         "avg_hr": avg_hr,
-        "avg_pace": avg_pace
+        "avg_pace": avg_pace,
+        "jarak": jarak_km
     }
     
     try:
@@ -165,9 +166,87 @@ def sync_strava_data(message):
 # ==================================================================
 # 📅 2. FUNGSI TARIK DATA 1 BULAN (BULK SYNC TO CLOUD)
 # ==================================================================
-async def strava_sync_1_month():
-    print("🔄 [Strava API] Menarik data 1 bulan terakhir ke Cloud...")
-    fresh_token = get_strava_access_token()
+def get_strava_access_token(refresh_token_user):
+    url = "https://www.strava.com/oauth/token"
+    payload = {
+        'client_id': STRAVA_CLIENT_ID,
+        'client_secret': STRAVA_CLIENT_SECRET,
+        'refresh_token': refresh_token_user, # 👈 Pake token milik user terkait
+        'grant_type': 'refresh_token'
+    }
+    try:
+        response = requests.post(url, data=payload)
+        response_json = response.json()
+        if response.status_code == 200:
+            return response_json['access_token']
+        else:
+            print(f"❌ Gagal refresh token Strava. Respon: {response_json}")
+            return None
+    except Exception as e:
+        print(f"❌ Error saat melakukan request token: {e}")
+        return None
+
+# 2. Update fungsi sync harian agar menerima user_id & refresh_token
+async def strava_sync(user_id: str, refresh_token: str):
+    print(f"🔄 Memulai sinkronisasi data Strava untuk User: {user_id}...")
+    fresh_token = get_strava_access_token(refresh_token)
+    if not fresh_token:
+        return False
+        
+    strava_client = Client(access_token=fresh_token)
+    activities = list(strava_client.get_activities(limit=5))
+    
+    if not activities:
+        return False
+        
+    latest_run = activities[0]
+    act_date = latest_run.start_date_local.strftime("%Y-%m-%d %H:%M")
+    
+    # FILTER DUPLIKAT: Sekarang dicek berdasarkan user_id nya juga!
+    try:
+        res_check = supabase_client.get(f"/workouts?user_id=eq.{user_id}&order=tanggal.desc&limit=10")
+        existing_runs = res_check.json()
+        existing_dates = [str(r.get('tanggal', '')).replace('T', ' ')[:16] for r in existing_runs]
+        if act_date in existing_dates:
+            print(f"⚠️ Data tanggal {act_date} milik {user_id} sudah ada.")
+            return True
+    except Exception as e:
+        print(f"⚠️ Gagal cek duplikat: {e}")
+
+    act_type = str(latest_run.type).replace("root='", "").replace("'", "")
+    act_duration = int(latest_run.elapsed_time / 60) if latest_run.elapsed_time else 0
+    avg_hr = int(latest_run.average_heartrate) if getattr(latest_run, 'average_heartrate', None) else None
+    jarak_km = round(float(latest_run.distance) / 1000, 2) if getattr(latest_run, 'distance', None) else 0.0
+    
+    avg_pace = None
+    if getattr(latest_run, 'average_speed', None) and act_type == "Run":
+        speed_ms = float(latest_run.average_speed)
+        if speed_ms > 0:
+            total_minutes = 16.6667 / speed_ms
+            avg_pace = f"{int(total_minutes):02d}:{int((total_minutes - int(total_minutes)) * 60):02d}"
+
+    payload_workout = {
+        "user_id": user_id,          # 👈 Catat siapa pemilik data lari ini
+        "tanggal": act_date,
+        "jenis_olahraga": act_type,
+        "durasi_menit": float(act_duration),
+        "avg_hr": avg_hr,
+        "avg_pace": avg_pace,
+        "jarak": jarak_km
+    }
+    
+    try:
+        supabase_client.post("/workouts", json=payload_workout)
+        print(f"✅ Data Strava milik {user_id} berhasil masuk cloud!")
+        return True
+    except Exception as e:
+        print(f"❌ Gagal mengirim data workout ke Supabase: {e}")
+        return False
+
+# 3. Update fungsi Bulk Sync 1 Bulan
+async def strava_sync_1_month(user_id: str, refresh_token: str):
+    print(f"🔄 [Bulk] Menarik data 1 bulan untuk User: {user_id}...")
+    fresh_token = get_strava_access_token(refresh_token)
     if not fresh_token:
         return "Gagal dapet token Strava, cuy."
 
@@ -179,8 +258,7 @@ async def strava_sync_1_month():
         if not activities:
             return "📭 Kagak ada aktivitas sama sekali dalam 30 hari terakhir."
             
-        # Ambil list tanggal lama di cloud biar ga duplikat
-        res_all = supabase_client.get("/workouts?select=tanggal")
+        res_all = supabase_client.get(f"/workouts?user_id=eq.{user_id}&select=tanggal")
         existing_dates = [str(r.get('tanggal', '')).replace('T', ' ')[:16] for r in res_all.json()]
         
         records_w = []
@@ -194,6 +272,7 @@ async def strava_sync_1_month():
             act_type = str(act.type).replace("root='", "").replace("'", "")
             act_duration = int(act.elapsed_time / 60) if act.elapsed_time else 0
             avg_hr = int(act.average_heartrate) if getattr(act, 'average_heartrate', None) else None
+            jarak_km = round(float(act.distance) / 1000, 2) if getattr(act, 'distance', None) else 0.0
             
             avg_pace = None
             if getattr(act, 'average_speed', None) and act_type == "Run":
@@ -203,18 +282,20 @@ async def strava_sync_1_month():
                     avg_pace = f"{int(total_minutes):02d}:{int((total_minutes - int(total_minutes)) * 60):02d}"
 
             records_w.append({
+                "user_id": user_id,  # 👈 Beri label pemilik
                 "tanggal": act_date,
                 "jenis_olahraga": act_type,
                 "durasi_menit": float(act_duration),
                 "avg_hr": avg_hr,
-                "avg_pace": avg_pace
+                "avg_pace": avg_pace,
+                "jarak": jarak_km
             })
             new_count += 1
             
         if records_w:
             supabase_client.post("/workouts", json=records_w)
             
-        return f"✅ Berhasil memproses {len(activities)} aktivitas dari Strava.\n💾 Sebanyak {new_count} data baru berhasil di-push ke cloud Supabase!"
+        return f"💾 Sebanyak {new_count} data baru berhasil di-push ke cloud Supabase!"
     except Exception as e:
         return f"❌ Terjadi error migrasi bulk: {repr(e)}"
 

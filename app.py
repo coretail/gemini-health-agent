@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 import pandas as pd
 import threading
 from tele_bot import bot, strava_sync
+import base64
+import requests
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -36,6 +38,15 @@ ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+def decode_supabase_token(token: str):
+    """Membongkar cookie access_token secara native untuk mengambil ID User"""
+    try:
+        payload = token.split('.')[1]
+        clean_payload = base64.urlsafe_b64decode(payload + "==").decode('utf-8')
+        return json.loads(clean_payload)
+    except Exception:
+        return None
 
 # Global client HTTPX khusus untuk Supabase
 supabase_headers = {
@@ -128,18 +139,91 @@ async def auth_login():
     
     return RedirectResponse(url=target_url)
 
+@app.get("/auth/strava")
+async def auth_strava():
+    """Melempar tester ke halaman izin resmi Strava"""
+    client_id = os.getenv("STRAVA_CLIENT_ID")
+    redirect_uri = "http://localhost:8000/auth/strava/callback"
+    
+    # Minta izin akses penuh ke ringkasan lari (activity:read_all)
+    url = f"https://www.strava.com/oauth/authorize?client_id={client_id}&redirect_uri={redirect_uri}&response_type=code&scope=activity:read_all"
+    return RedirectResponse(url=url)
+
+
+@app.get("/auth/strava/callback")
+async def strava_callback(request: Request, code: str):
+    """Menangkap lemparan kode dari Strava, menukarnya jadi token, lalu disimpan ke user terkait"""
+    token = request.cookies.get("sb_access_token")
+    if not token:
+        return RedirectResponse(url="/login", status_code=303)
+        
+    user_data = decode_supabase_token(token)
+    user_id = user_data.get("sub") if user_data else None
+    
+    # 1. Jabat tangan ke server Strava buat nuker kode jadi token abadi
+    strava_url = "https://www.strava.com/oauth/token"
+    payload = {
+        "client_id": os.getenv("STRAVA_CLIENT_ID"),
+        "client_secret": os.getenv("STRAVA_CLIENT_SECRET"),
+        "code": code,
+        "grant_type": "authorization_code"
+    }
+    
+    res = requests.post(strava_url, data=payload)
+    if res.status_code == 200:
+        data = res.json()
+        
+        # 2. Ambil paketan token unik milik si tester tersebut
+        strava_tokens = {
+            "strava_id": str(data["athlete"]["id"]),
+            "strava_access_token": data["access_token"],
+            "strava_refresh_token": data["refresh_token"],
+            "strava_expires_at": data["expires_at"]
+        }
+        
+        # 3. Suntikkan token Strava tersebut ke baris profil milik si user di Supabase!
+        # FIX BUG: Cek dulu apakah baris data user sudah ada atau belum
+        res_check = supabase_client.get(f"/profiles?id=eq.{user_id}")
+        check_data = res_check.json()
+        if check_data:
+            supabase_client.patch(f"/profiles?id=eq.{user_id}", json=strava_tokens)
+            print("✅ Token Strava berhasil di-update pada profil yang ada.")
+        else:
+            strava_tokens["id"] = user_id
+            supabase_client.post("/profiles", json=strava_tokens)
+            print("✅ Baris profil baru berhasil dibuat sekalian dengan token Strava!")
+        
+        # 🔥 OTOMATISASI ONBOARDING: Langsung panggil tarik data sebulan penuh saat ini juga!
+        try:
+            print(f"🚀 [Onboarding] Otomatis menarik data histori lari 30 hari untuk {user_id}...")
+            await strava_sync_1_month(user_id, strava_tokens["strava_refresh_token"])
+        except Exception as e:
+            print(f"⚠️ Gagal auto-bulk sync paska onboarding: {e}")
+        
+    return RedirectResponse(url="/profile", status_code=303)
+
 # ==========================================
 # 🔄 ENGINE BACKGROUND AUTO-SYNC STRAVA
 # ==========================================
 async def auto_fetch_strava_job():
-    """Fungsi yang akan berjalan otomatis di latar belakang untuk narik data Strava"""
-    print("🔄 [Scheduler] Memulai pengecekan aktivitas baru ke server Strava...")
+    """Fungsi latar belakang yang otomatis menyisir semua aktivitas user terdaftar setiap 15 menit"""
+    print("🔄 [Scheduler] Memulai pengecekan aktivitas baru untuk seluruh user di database...")
     try:
-        # Panggil fungsi async yang baru tanpa parameter message
-        await strava_sync() 
-        print("✅ [Scheduler] Auto-sync Strava sukses dijalankan via background task!")
+        # Ambil daftar id dan refresh token dari semua profil yang sudah connect Strava
+        res = supabase_client.get("/profiles?select=id,strava_refresh_token")
+        profiles = res.json()
+        
+        for p in profiles:
+            u_id = p.get("id")
+            r_token = p.get("strava_refresh_token")
+            
+            # Kalau user ini sudah pernah connect Strava, kita sync aktivitas barunya
+            if u_id and r_token:
+                await strava_sync(u_id, r_token)
+                
+        print("✅ [Scheduler] Siklus auto-sync Strava untuk seluruh user selesai dijalankan!")
     except Exception as e:
-        print(f"❌ [Scheduler] Gagal auto-sync Strava: {e}")
+        print(f"❌ [Scheduler] Gagal mengeksekusi siklus auto-sync: {e}")
 # Inisialisasi Scheduler bawaan AsyncIO
 scheduler = AsyncIOScheduler()
 
@@ -282,10 +366,26 @@ async def delete_nutrition(tanggal: str = Form(...)):
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard(request: Request):
     token = request.cookies.get("sb_access_token")
-    
-    # Jika token kagak ketemu, langsung tendang user ke halaman login
     if not token:
         return RedirectResponse(url="/login", status_code=303)
+    
+    # 2. Ambil ID unik user dari token
+    user_data = decode_supabase_token(token)
+    user_id = user_data.get("sub") if user_data else None
+    
+    # 3. FITUR BARU: Cek apakah user ini baru atau lama
+    try:
+        res_profile = supabase_client.get(f"/profiles?id=eq.{user_id}")
+        profile_data = res_profile.json()
+        
+        # Kalo data di tabel profiles kosong, artinya dia USER BARU!
+        if not profile_data:
+            print(f"👋 User baru terdeteksi ({user_id}), mengarahkan ke halaman profil...")
+            return RedirectResponse(url="/profile", status_code=303)
+            
+    except Exception as e:
+        print(f"⚠️ Gagal cek status user di database: {e}")
+        # Jika database error, biarkan lolos ke bawah atau handle sesuai kebutuhan
     
     workout_data = []
     strength_data = []
@@ -296,6 +396,8 @@ async def read_dashboard(request: Request):
 
     # === NILAI DEFAULT AMAN (ANTI CRASH) ===
     waktu_terakhir_lari = "Belum ada data"
+    latest_pace = "-"  
+    latest_hr = "-"
     acwr_chart_data = {"dates": [], "acwr": []}
     readiness_score = 100
     readiness_msg = "Belum ada data latihan. Baterai full siap tempur!"
@@ -312,8 +414,8 @@ async def read_dashboard(request: Request):
 
     # ─── 🏃‍♂️ 1. AMBIL & PROSES DATA WORKOUT DARI SUPABASE ───
     try:
-        # Tarik semua data workout diurutkan berdasarkan tanggal terlama ke terbaru (.asc)
-        res_w = supabase_client.get("/workouts?order=tanggal.asc")
+        # FIX FILTER USER_ID: Hanya ambil workout milik user ini saja!
+        res_w = supabase_client.get(f"/workouts?user_id=eq.{user_id}&order=tanggal.asc")
         workout_records = res_w.json()
     except Exception as e:
         print(f"❌ Gagal ambil data workout dari Supabase: {e}")
@@ -330,7 +432,8 @@ async def read_dashboard(request: Request):
                 'jenis_olahraga': 'Jenis Olahraga',
                 'durasi_menit': 'Durasi (Menit)',
                 'avg_hr': 'Avg HR (BPM)',
-                'avg_pace': 'Avg Pace (min/km)'
+                'avg_pace': 'Avg Pace (min/km)',
+                'jarak': 'Jarak'
             })
 
             # Ambil 7 sesi terakhir untuk grafik Training Load
@@ -571,11 +674,26 @@ PENTING: Di bagian deskripsi ('desc'), hubungkan fungsi zona tersebut dengan tar
 # ==========================================
 @app.get("/profile", response_class=HTMLResponse)
 async def view_profile(request: Request):
-    profile_data = load_user_profile()
+    # 1. Satpam Cookie Auth
+    token = request.cookies.get("sb_access_token")
+    if not token:
+        return RedirectResponse(url="/login", status_code=303)
+    
+    # 2. Ambil ID unik si user yang sedang login
+    user_data = decode_supabase_token(token)
+    user_id = user_data.get("sub") if user_data else None
+    
+    # 3. Ambil data profil khusus milik user_id ini saja
+    res = supabase_client.get(f"/profiles?id=eq.{user_id}")
+    profile_list = res.json()
+    profile_data = profile_list[0] if profile_list else {}
+    
     return templates.TemplateResponse(request, "profile.html", {"request": request, "profile": profile_data})
+
 
 @app.post("/profile/update")
 async def update_profile(
+    request: Request, # Tambahkan parameter request untuk baca cookie
     nama: str = Form(...),
     tempat_lahir: str = Form(...),
     tanggal_lahir: str = Form(...),
@@ -588,7 +706,15 @@ async def update_profile(
     tanggal_race: str = Form(""),
     catatan_agent: str = Form("")
 ):
+    token = request.cookies.get("sb_access_token")
+    if not token:
+        return RedirectResponse(url="/login", status_code=303)
+        
+    user_data = decode_supabase_token(token)
+    user_id = user_data.get("sub") if user_data else None
+
     updated_data = {
+        "id": user_id, # Kunci baris data biar gak tertukar antar user
         "nama": nama,
         "tempat_lahir": tempat_lahir,
         "tanggal_lahir": tanggal_lahir,
@@ -601,18 +727,20 @@ async def update_profile(
         "tanggal_race": tanggal_race,
         "catatan_agent": catatan_agent
     }
+    
     try:
-        # Kita cek dulu ID profilnya biar bisa kita update datanya tepat sasaran
-        res_check = supabase_client.get("/profiles?select=id")
+        # Cek apakah baris profil milik user_id ini sudah ada di Supabase
+        res_check = supabase_client.get(f"/profiles?id=eq.{user_id}")
         check_data = res_check.json()
         
         if check_data:
-            profile_id = check_data[0]['id']
-            # Update baris profil yang sudah ada berdasarkan ID nya
-            supabase_client.patch(f"/profiles?id=eq.{profile_id}", json=updated_data)
-            print("✅ Profil berhasil diupdate di Supabase cloud!")
+            # Update data spesifik milik user_id tersebut
+            supabase_client.patch(f"/profiles?id=eq.{user_id}", json=updated_data)
+            print(f"✅ Profil {nama} berhasil diupdate!")
         else:
+            # Buat baris baru kalau tester baru pertama kali isi
             supabase_client.post("/profiles", json=updated_data)
+            print(f"✅ Profil baru {nama} berhasil dibuat!")
     except Exception as e:
         print(f"❌ Gagal mengupdate profil ke Supabase: {e}")
         
