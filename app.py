@@ -9,7 +9,7 @@ from fastapi.templating import Jinja2Templates
 from datetime import datetime, timedelta
 import pandas as pd
 import threading
-from tele_bot import bot, strava_sync
+from tele_bot import bot, strava_sync, strava_sync_1_month
 import base64
 import requests
 
