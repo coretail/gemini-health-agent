@@ -9,3 +9,9 @@ venv/
 *.py[cod]
 *$py.class
 .DS_Store
+
+venv/
+.env
+__pycache__/
+*.pyc
+temp_images/
