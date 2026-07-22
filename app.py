@@ -89,10 +89,18 @@ PROFILE_JSON = os.path.join(DB_FOLDER, "user_profile.json")
 
 # Fungsi pembantu untuk load data profil dengan nilai default
 # Fungsi load profil Supabase Cloud
-def load_user_profile():
+def load_user_profile(user_id=None):
     try:
         # Tarik data dari tabel profiles
-        res = supabase_client.get("/profiles?select=*")
+        if user_id:
+            res = supabase_client.get(f"/profiles?id=eq.{user_id}")
+        else:
+            res = supabase_client.get("/profiles?select=*")
+            
+        if res.status_code not in [200, 201]:
+            print(f"⚠️ Supabase error load profil: {res.text}")
+            raise Exception(f"Supabase returned status {res.status_code}")
+            
         data = res.json()
         
         # Kalau tabelnya masih kosong (belum ada user), balikin data default awal
@@ -110,6 +118,8 @@ def load_user_profile():
                 "tanggal_race": "2026-08-30",
                 "catatan_agent": "gamau kalah"
             }
+            if user_id:
+                default_profile["id"] = user_id
             # Insert data default pertama kali ke Supabase
             supabase_client.post("/profiles", json=default_profile)
             return default_profile
@@ -278,10 +288,17 @@ def parse_nutrition_mentah(text_mentah):
 # ==========================================
 @app.post("/add_nutrition")
 async def add_nutrition(
+    request: Request,
     catatan: str = Form("Tanpa catatan"), 
     foto: UploadFile = File(None)         
 ):
     """Endpoint untuk Create Data Nutrisi via AI (Simpan ke Supabase Cloud)"""
+    token = request.cookies.get("sb_access_token")
+    user_id = None
+    if token:
+        user_data = decode_supabase_token(token)
+        user_id = user_data.get("sub") if user_data else None
+
     # Gunakan format ISO standar yang disukai PostgreSQL timestamptz
     waktu_makan = datetime.now().isoformat()
     
@@ -291,7 +308,7 @@ async def add_nutrition(
         mime_type = foto.content_type or 'image/jpeg'
         contents.append(types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
         
-    profile = load_user_profile()
+    profile = load_user_profile(user_id)
     
     prompt_text = f"""
 Kamu adalah asisten gizi olahraga pribadi untuk {profile.get('nama', 'User')}.
@@ -333,6 +350,8 @@ Jika makanan ini tidak sejalan dengan targetnya, beri teguran suportif!
             "lemak": float(data_ai.get('lemak', 0)),
             "keterangan": data_ai.get('keterangan', 'Dianalisis oleh AI.')
         }
+        if user_id:
+            payload_nutrition["user_id"] = user_id
         
         # Kirim data ke Supabase cloud!
         supabase_client.post("/nutrition", json=payload_nutrition)
@@ -347,16 +366,25 @@ Jika makanan ini tidak sejalan dengan targetnya, beri teguran suportif!
             "kalori": 0, "protein": 0, "karbo": 0, "lemak": 0,
             "keterangan": f"Gagal dianalisis AI - {e}"
         }
+        if user_id:
+            fallback_payload["user_id"] = user_id
         supabase_client.post("/nutrition", json=fallback_payload)
         
     return RedirectResponse(url="/", status_code=303)
 
 @app.post("/delete_nutrition")
-async def delete_nutrition(tanggal: str = Form(...)):
+async def delete_nutrition(request: Request, tanggal: str = Form(...)):
     """Endpoint untuk Delete Data Nutrisi berdasarkan Tanggal di Cloud"""
+    token = request.cookies.get("sb_access_token")
+    if not token:
+        return RedirectResponse(url="/login", status_code=303)
+        
+    user_data = decode_supabase_token(token)
+    user_id = user_data.get("sub") if user_data else None
+    
     try:
-        # Kirim perintah DELETE dengan filter kolom tanggal harus sama (eq) dengan input
-        supabase_client.delete(f"/nutrition?tanggal=eq.{tanggal}")
+        # Kirim perintah DELETE dengan filter kolom tanggal harus sama (eq) dengan input dan milik user_id
+        supabase_client.delete(f"/nutrition?user_id=eq.{user_id}&tanggal=eq.{tanggal}")
         print(f"🗑️ Log nutrisi tanggal {tanggal} berhasil dihapus dari cloud!")
     except Exception as e:
         print(f"❌ Gagal menghapus data di Supabase: {e}")
@@ -490,8 +518,8 @@ async def read_dashboard(request: Request):
 
     # ─── 🍳 2. AMBIL & PROSES DATA NUTRISI DARI SUPABASE ───
     try:
-        # Ambil data makanan urut tanggal terlama ke terbaru
-        res_n = supabase_client.get("/nutrition?order=tanggal.asc")
+        # Ambil data makanan urut tanggal terlama ke terbaru untuk user ini saja!
+        res_n = supabase_client.get(f"/nutrition?user_id=eq.{user_id}&order=tanggal.asc")
         nutrition_records = res_n.json()
     except Exception as e:
         print(f"❌ Gagal ambil data nutrisi dari Supabase: {e}")
@@ -564,7 +592,7 @@ async def read_dashboard(request: Request):
             print(f"❌ Error pemrosesan data gizi: {e}")
 
     # ─── 🤖 3. GENERATE JADWAL ZONA LATIHAN & EVALUASI AGENT AI ───
-    profile = load_user_profile()
+    profile = load_user_profile(user_id)
     latest_acwr = acwr_chart_data["acwr"][-1] if acwr_chart_data["acwr"] else 0.0
     
     # Kalkulasi Countdown Race

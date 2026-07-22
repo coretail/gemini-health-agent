@@ -5,3 +5,7 @@ database/*.csv
 database/*.json
 temp_images/
 makanan/
+venv/
+*.py[cod]
+*$py.class
+.DS_Store
