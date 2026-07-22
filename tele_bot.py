@@ -44,6 +44,9 @@ supabase_headers = {
 }
 supabase_client = httpx.Client(base_url=f"{SUPABASE_URL or ''}/rest/v1", headers=supabase_headers)
 
+# State lock untuk mencegah konflik sinkronisasi paralel
+STRAVA_SYNC_LOCK = False
+
 # Skema JSON Gizi untuk Validasi Data Gemini
 class NutritionLog(BaseModel):
     kalori: int = Field(description="Estimasi total kalori (kkal)")
@@ -181,6 +184,12 @@ async def strava_sync(user_id=None, refresh_token=None):
 
 @bot.message_handler(commands=['sync_strava'])
 def sync_strava_data(message):
+    global STRAVA_SYNC_LOCK
+    if STRAVA_SYNC_LOCK:
+        bot.reply_to(message, "⚠️ <b>Sabar cuy!</b> Proses sinkronisasi Strava sedang berjalan. Tunggu sampai selesai ya!", parse_mode='HTML')
+        return
+
+    STRAVA_SYNC_LOCK = True
     bot.reply_to(message, "🔄 Menghubungi server Strava... Tunggu bentar ya, cuy!")
     try:
         # Untuk bot pribadi, kita coba ambil profil pertama dari Supabase untuk dapat User ID-nya
@@ -194,10 +203,17 @@ def sync_strava_data(message):
         except:
             pass
 
-        asyncio.run(strava_sync(u_id, r_token))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(strava_sync(u_id, r_token))
+        finally:
+            loop.close()
         bot.reply_to(message, "✅ <b>SINKRONISASI STRAVA SUKSES VIA CHAT!</b>\nDatabase cloud Supabase udah diperbarui, cuy. Cek dashboard gih!", parse_mode='HTML')
     except Exception as e:
         bot.reply_to(message, f"❌ Error Bot: {e}")
+    finally:
+        STRAVA_SYNC_LOCK = False
 
 
 # ==================================================================
@@ -270,6 +286,12 @@ async def strava_sync_1_month(user_id=None, refresh_token=None):
 
 @bot.message_handler(commands=['sync_bulan'])
 def sync_strava_bulan(message):
+    global STRAVA_SYNC_LOCK
+    if STRAVA_SYNC_LOCK:
+        bot.reply_to(message, "⚠️ <b>Sabar cuy!</b> Proses sinkronisasi Strava sedang berjalan. Tunggu sampai selesai ya!", parse_mode='HTML')
+        return
+
+    STRAVA_SYNC_LOCK = True
     bot.reply_to(message, "🔄 Menarik riwayat Strava lu 30 hari ke belakang... Harap sabar ya cuy!")
     try:
         # Ambil user_id dan token dari profil pertama (untuk bot pribadi)
@@ -283,10 +305,20 @@ def sync_strava_bulan(message):
         except:
             pass
 
-        hasil = asyncio.run(strava_sync_1_month(u_id, r_token))
+        # sync_strava_data
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            hasil = loop.run_until_complete(strava_sync_1_month(u_id, r_token))
+        finally:
+            loop.close()
+            
         bot.reply_to(message, hasil)
+
     except Exception as e:
         bot.reply_to(message, f"❌ Error eksekusi bot: {e}")
+    finally:
+        STRAVA_SYNC_LOCK = False
 
 
 
