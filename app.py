@@ -32,12 +32,14 @@ import httpx
 app = FastAPI(title="Personal Health Tracker Dashboard")
 templates = Jinja2Templates(directory="templates")
 
-# API Key Gemini Lu
+# API Key Gemini
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 
 def decode_supabase_token(token: str):
     """Membongkar cookie access_token secara native untuk mengambil ID User"""
@@ -145,7 +147,7 @@ async def auth_login():
     
     # Kita arahkan provider ke google. 
     # Setelah sukses login di Google, Supabase otomatis membalikkan user ke aplikasi lokal kita
-    target_url = f"{supabase_project_url}/auth/v1/authorize?provider=google&redirect_to=http://localhost:8000/"
+    target_url = f"{supabase_project_url}/auth/v1/authorize?provider=google&redirect_to={BASE_URL}"
     
     return RedirectResponse(url=target_url)
 
@@ -153,7 +155,7 @@ async def auth_login():
 async def auth_strava():
     """Melempar tester ke halaman izin resmi Strava"""
     client_id = os.getenv("STRAVA_CLIENT_ID")
-    redirect_uri = "http://localhost:8000/auth/strava/callback"
+    redirect_uri = f"{BASE_URL}/auth/strava/callback"
     
     # Minta izin akses penuh ke ringkasan lari (activity:read_all)
     url = f"https://www.strava.com/oauth/authorize?client_id={client_id}&redirect_uri={redirect_uri}&response_type=code&scope=activity:read_all"
