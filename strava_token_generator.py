@@ -3,8 +3,8 @@ from dotenv import load_model, load_dotenv
 
 # Masukkan data asli dari dashboard Strava lu
 CLIENT_ID = "253476"
-CLIENT_SECRET = "311253551609da2f2faeeab2a08a3218e02a2cfb"  # <-- Klik 'Show' di web Strava lalu copas ke sini
-AUTH_CODE = "28b22a23c7ba1fba70f9f29e00c351677066ba17"
+CLIENT_SECRET = "STRAVA_CLIENT_SECRET"  # <-- Klik 'Show' di web Strava lalu copas ke sini
+AUTH_CODE = "STRAVA_AUTH_CODE"
 
 print("🔄 Menukarkan kode authorization menjadi Access Token...")
 
