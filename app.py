@@ -478,10 +478,14 @@ async def read_dashboard(request: Request):
                 graph_data["loads"].append(training_load)
 
             # Filter data untuk tabel Run & Strength
-            df_run = df_workout[df_workout['Jenis Olahraga'].str.lower() == 'run']
+            df_run = df_workout[df_workout['Jenis Olahraga'].str.lower() == 'run'].copy()
+            if not df_run.empty:
+                df_run['Tanggal'] = pd.to_datetime(df_run['Tanggal']).dt.strftime('%Y-%m-%d %H:%M')
             workout_data = df_run.tail(5).to_dict(orient="records")
             
-            df_strength = df_workout[df_workout['Jenis Olahraga'].str.lower() != 'run']
+            df_strength = df_workout[df_workout['Jenis Olahraga'].str.lower() != 'run'].copy()
+            if not df_strength.empty:
+                df_strength['Tanggal'] = pd.to_datetime(df_strength['Tanggal']).dt.strftime('%Y-%m-%d %H:%M')
             strength_data = df_strength.tail(5).to_dict(orient="records")
 
             # === KALKULASI ACWR (Acute vs Chronic Workload Ratio) ===
