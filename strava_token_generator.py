@@ -2,7 +2,7 @@ import requests
 from dotenv import load_model, load_dotenv
 
 # Masukkan data asli dari dashboard Strava lu
-CLIENT_ID = "253476"
+CLIENT_ID = "STRAVA_CLIENT_ID"
 CLIENT_SECRET = "STRAVA_CLIENT_SECRET"  # <-- Klik 'Show' di web Strava lalu copas ke sini
 AUTH_CODE = "STRAVA_AUTH_CODE"
 
