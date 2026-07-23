@@ -174,8 +174,60 @@ async def strava_sync(user_id=None, refresh_token=None):
         payload_workout["user_id"] = user_id
     
     try:
-        supabase_client.post("/workouts", json=payload_workout)
-        print("✅ Data Strava berhasil diterbangkan ke Supabase Cloud!")
+        res_post = supabase_client.post("/workouts", json=payload_workout)
+        if res_post.status_code not in [200, 201]:
+            print(f"❌ Gagal simpan workout utama: {res_post.text}")
+            return False
+            
+        workout_id = None
+        # Supabase biasanya mengembalikan data yang diinsert jika pakai header Prefer: return=representation
+        # Tapi kita coba ambil dari response JSON jika tersedia
+        try:
+            res_data = res_post.json()
+            if isinstance(res_data, list) and len(res_data) > 0:
+                workout_id = res_data[0].get("id")
+            elif isinstance(res_data, dict):
+                workout_id = res_data.get("id")
+        except:
+            pass
+
+        # Jika ID belum dapat, kita fetch manual lari terakhir user ini
+        if not workout_id and user_id:
+            res_latest = supabase_client.get(f"/workouts?user_id=eq.{user_id}&order=tanggal.desc&limit=1")
+            latest_data = res_latest.json()
+            if latest_data:
+                workout_id = latest_data[0].get("id")
+
+        print(f"✅ Data Strava utama berhasil (ID: {workout_id})")
+
+        # --- SYNC SPLITS (KM) ---
+        if act_type == "Run" and workout_id:
+            try:
+                detail_activity = strava_client.get_activity(latest_run.id)
+                if hasattr(detail_activity, 'splits_metric') and detail_activity.splits_metric:
+                    splits_payload = []
+                    for idx, split in enumerate(detail_activity.splits_metric, 1):
+                        # Kalkulasi Pace MM:SS
+                        s_pace = "-"
+                        if split.average_speed > 0:
+                            s_total_min = 16.6667 / float(split.average_speed)
+                            s_pace = f"{int(s_total_min):02d}:{int((s_total_min - int(s_total_min)) * 60):02d}"
+                        
+                        splits_payload.append({
+                            "workout_id": workout_id,
+                            "lap_index": idx,
+                            "split_distance": round(float(split.distance) / 1000, 2),
+                            "split_elapsed_time": int(split.elapsed_time),
+                            "split_pace": s_pace,
+                            "avg_hr": int(split.average_heartrate) if hasattr(split, 'average_heartrate') and split.average_heartrate else None
+                        })
+                    
+                    if splits_payload:
+                        res_splits = supabase_client.post("/workout_splits", json=splits_payload)
+                        print(f"✅ Berhasil simpan {len(splits_payload)} splits ke cloud!")
+            except Exception as e_split:
+                print(f"⚠️ Gagal tarik/simpan detail splits: {e_split}")
+
         return True
     except Exception as e:
         print(f"❌ Gagal mengirim data workout ke Supabase: {e}")
@@ -277,9 +329,83 @@ async def strava_sync_1_month(user_id=None, refresh_token=None):
             new_count += 1
             
         if records_w:
-            supabase_client.post("/workouts", json=records_w)
+            # Kita post satu-satu atau bulk? Kalau bulk kita susah dapet ID per baris untuk splits.
+            # Agar simpel & akurat untuk splits, kita post satu-satu saja di dalam loop ini
+            # Tapi untuk efisiensi, kita gunakan payload records_w yang sudah ada dan modifikasi loop di atas
+            pass
+
+        # RE-LOGIC: Loop ulang untuk insert per baris agar bisa narik splits
+        new_count_final = 0
+        for act in reversed(activities):
+            act_date = act.start_date_local.strftime("%Y-%m-%d %H:%M")
+            if act_date in existing_dates:
+                continue
+                
+            act_type = str(act.type).replace("root='", "").replace("'", "")
+            act_duration = int(act.elapsed_time / 60) if act.elapsed_time else 0
+            avg_hr = int(act.average_heartrate) if getattr(act, 'average_heartrate', None) else None
+            jarak_km = round(float(act.distance) / 1000, 2) if getattr(act, 'distance', None) else 0.0
             
-        return f"💾 Sebanyak {new_count} data baru berhasil di-push ke cloud Supabase!"
+            avg_pace = None
+            if getattr(act, 'average_speed', None) and act_type == "Run":
+                speed_ms = float(act.average_speed)
+                if speed_ms > 0:
+                    total_minutes = 16.6667 / speed_ms
+                    avg_pace = f"{int(total_minutes):02d}:{int((total_minutes - int(total_minutes)) * 60):02d}"
+
+            payload = {
+                "tanggal": act_date,
+                "jenis_olahraga": act_type,
+                "durasi_menit": float(act_duration),
+                "avg_hr": avg_hr,
+                "avg_pace": avg_pace,
+                "jarak": jarak_km
+            }
+            if user_id:
+                payload["user_id"] = user_id
+            
+            # Insert Workout Utama
+            res_p = supabase_client.post("/workouts", json=payload)
+            if res_p.status_code in [200, 201]:
+                new_count_final += 1
+                # Ambil ID untuk splits
+                w_id = None
+                try:
+                    r_json = res_p.json()
+                    w_id = r_json[0].get("id") if isinstance(r_json, list) else r_json.get("id")
+                except: pass
+
+                if not w_id and user_id:
+                    # Fallback ambil ID berdasarkan tanggal & user
+                    res_f = supabase_client.get(f"/workouts?user_id=eq.{user_id}&tanggal=eq.{act_date}")
+                    f_data = res_f.json()
+                    if f_data: w_id = f_data[0].get("id")
+
+                # Tarik Splits jika Lari
+                if act_type == "Run" and w_id:
+                    try:
+                        detail = strava_client.get_activity(act.id)
+                        if hasattr(detail, 'splits_metric') and detail.splits_metric:
+                            s_list = []
+                            for i, s in enumerate(detail.splits_metric, 1):
+                                sp_pace = "-"
+                                if s.average_speed > 0:
+                                    sp_min = 16.6667 / float(s.average_speed)
+                                    sp_pace = f"{int(sp_min):02d}:{int((sp_min - int(sp_min)) * 60):02d}"
+                                
+                                s_list.append({
+                                    "workout_id": w_id,
+                                    "lap_index": i,
+                                    "split_distance": round(float(s.distance) / 1000, 2),
+                                    "split_elapsed_time": int(s.elapsed_time),
+                                    "split_pace": sp_pace,
+                                    "avg_hr": int(s.average_heartrate) if hasattr(s, 'average_heartrate') and s.average_heartrate else None
+                                })
+                            if s_list:
+                                supabase_client.post("/workout_splits", json=s_list)
+                    except: pass
+            
+        return f"💾 Sebanyak {new_count_final} data baru (beserta splits) berhasil di-push ke cloud Supabase!"
     except Exception as e:
         return f"❌ Terjadi error migrasi bulk: {repr(e)}"
 
