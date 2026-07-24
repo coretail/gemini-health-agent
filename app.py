@@ -482,6 +482,7 @@ async def read_dashboard(request: Request):
             if not df_run.empty:
                 df_run['Tanggal'] = pd.to_datetime(df_run['Tanggal']).dt.strftime('%Y-%m-%d %H:%M')
             workout_data = df_run.tail(5).to_dict(orient="records")
+            workout_data = workout_data[::-1]
 
             # 🔥 AMBIL DATA SPLITS UNTUK WORKOUT LARI
             run_ids = [str(w.get('id')) for w in workout_data if w.get('id')]
@@ -508,6 +509,7 @@ async def read_dashboard(request: Request):
             if not df_strength.empty:
                 df_strength['Tanggal'] = pd.to_datetime(df_strength['Tanggal']).dt.strftime('%Y-%m-%d %H:%M')
             strength_data = df_strength.tail(5).to_dict(orient="records")
+            strength_data = strength_data[::-1]
 
             # === KALKULASI ACWR (Acute vs Chronic Workload Ratio) ===
             df_acwr = df_workout.copy()
