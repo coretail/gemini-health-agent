@@ -804,3 +804,25 @@ async def update_profile(
         print(f"❌ Gagal mengupdate profil ke Supabase: {e}")
         
     return RedirectResponse(url="/profile", status_code=303)
+
+@app.get("/history", response_class=HTMLResponse)
+async def history(request: Request):
+    token = request.cookies.get("sb_access_token")
+    if not token:
+        return RedirectResponse(url="/login", status_code=303)
+    
+    user_data = decode_supabase_token(token)
+    user_id = user_data.get("sub") if user_data else None
+    
+    res = supabase_client.get(f"/workouts?select=*,splits:workout_splits(*)&user_id=eq.{user_id}&order=tanggal.desc")
+    all_workouts = res.json() if res.status_code == 200 else []
+    
+    # Format tanggal
+    for w in all_workouts:
+        if w.get('tanggal'):
+            w['tanggal'] = str(w['tanggal']).replace('T', ' ')[:16]
+    
+    return templates.TemplateResponse(request, "history.html", {
+        "request": request,
+        "workouts": all_workouts
+    })

@@ -148,6 +148,7 @@ async def strava_sync(user_id=None, refresh_token=None):
 
     # Ekstrak Metrik Utama
     act_type = str(latest_run.type).replace("root='", "").replace("'", "")
+    nama_sesi = str(latest_run.name) if getattr(latest_run, 'name', None) else "Untitled Run"
     act_duration = int(latest_run.elapsed_time / 60) if latest_run.elapsed_time else 0
     avg_hr = int(latest_run.average_heartrate) if getattr(latest_run, 'average_heartrate', None) else None
     # Kalkulasi jarak dalam KM
@@ -163,6 +164,7 @@ async def strava_sync(user_id=None, refresh_token=None):
     # Pasang payload sesuai kolom PostgreSQL
     payload_workout = {
         "tanggal": act_date,
+        "nama_sesi": nama_sesi,
         "jenis_olahraga": act_type,
         "durasi_menit": float(act_duration),
         "avg_hr": avg_hr,
@@ -284,6 +286,7 @@ def sync_strava_data(message):
 async def strava_sync_1_month(user_id=None, refresh_token=None):
     print(f"🔄 [Bulk] Menarik data 1 bulan... (User ID: {user_id or 'Default'})")
     
+    
     fresh_token = get_strava_access_token(refresh_token)
     if not fresh_token:
         return "Gagal dapet token Strava, cuy."
@@ -306,13 +309,15 @@ async def strava_sync_1_month(user_id=None, refresh_token=None):
         
         records_w = []
         new_count = 0
-        
+        for act in reversed(activities):
+            print(f"🔍 Nama: {act.name} | Tanggal: {act.start_date_local}")
         for act in reversed(activities):
             act_date = act.start_date_local.strftime("%Y-%m-%d %H:%M")
             if act_date in existing_dates:
                 continue
                 
             act_type = str(act.type).replace("root='", "").replace("'", "")
+            nama_sesi = str(act.name) if getattr(act, 'name', None) else "Untitled Run"
             act_duration = int(act.elapsed_time / 60) if act.elapsed_time else 0
             avg_hr = int(act.average_heartrate) if getattr(act, 'average_heartrate', None) else None
             jarak_km = round(float(act.distance) / 1000, 2) if getattr(act, 'distance', None) else 0.0
@@ -326,6 +331,7 @@ async def strava_sync_1_month(user_id=None, refresh_token=None):
 
             payload = {
                 "tanggal": act_date,
+                "nama_sesi": nama_sesi,
                 "jenis_olahraga": act_type,
                 "durasi_menit": float(act_duration),
                 "avg_hr": avg_hr,
@@ -337,6 +343,7 @@ async def strava_sync_1_month(user_id=None, refresh_token=None):
                 
             records_w.append(payload)
             new_count += 1
+            
             
         if records_w:
             # Kita post satu-satu atau bulk? Kalau bulk kita susah dapet ID per baris untuk splits.
@@ -352,6 +359,10 @@ async def strava_sync_1_month(user_id=None, refresh_token=None):
                 continue
                 
             act_type = str(act.type).replace("root='", "").replace("'", "")
+            
+            # PEMBERSIH BUG: Nama sesi sekarang di-update tiap iterasi biar gak seragam semua
+            nama_sesi = str(act.name) if getattr(act, 'name', None) else "Untitled Run"
+            
             act_duration = int(act.elapsed_time / 60) if act.elapsed_time else 0
             avg_hr = int(act.average_heartrate) if getattr(act, 'average_heartrate', None) else None
             jarak_km = round(float(act.distance) / 1000, 2) if getattr(act, 'distance', None) else 0.0
@@ -365,6 +376,7 @@ async def strava_sync_1_month(user_id=None, refresh_token=None):
 
             payload = {
                 "tanggal": act_date,
+                "nama_sesi": nama_sesi,
                 "jenis_olahraga": act_type,
                 "durasi_menit": float(act_duration),
                 "avg_hr": avg_hr,

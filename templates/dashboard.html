@@ -120,6 +120,7 @@
                         <thead class="text-xs uppercase bg-gray-700 text-gray-400">
                             <tr>
                                 <th class="p-3">Tanggal</th>
+                                <th class="p-3">Nama Sesi</th>
                                 <th class="p-3">Jarak</th>
                                 <th class="p-3">Pace</th>
                                 <th class="p-3 text-right">Aksi</th>
@@ -129,6 +130,7 @@
                             {% for w in workouts %}
                             <tr class="border-b border-gray-700 hover:bg-gray-750/50 transition-colors">
                                 <td class="p-3 font-medium text-white">{{ w['Tanggal'] }}</td>
+                                <td class="p-3 text-gray-300 text-xs">{{ w.get('nama_sesi', '-') }}</td>
                                 <td class="p-3 text-emerald-400 font-bold">{{ w['Jarak'] }} KM</td>
                                 <td class="p-3">⏱️ {{ w['Avg Pace (min/km)'] }}</td>
                                 <td class="p-3 text-right">
@@ -147,6 +149,12 @@
                             {% endfor %}
                         </tbody>
                     </table>
+                    
+                    <div style="text-align: center; margin-top: 15px;">
+                        <a href="/history" style="padding: 8px 16px; background-color: #2d3748; color: #fff; border-radius: 6px; text-decoration: none; font-size: 14px;">
+                                    Lihat Semua Aktivitas →</a>
+                    </div>
+                    
                 </div>
             </div>
 

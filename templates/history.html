@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Riwayat Aktivitas Strava</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen font-sans">
+
+    <div class="container mx-auto px-4 py-8 max-w-5xl">
+        <header class="mb-8 border-b border-gray-800 pb-4 flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-bold text-amber-400">🏃‍♂️ Riwayat Aktivitas Strava</h1>
+                <p class="text-gray-400 text-sm">Semua sesi lari & latihan yang tersinkronisasi</p>
+            </div>
+            <a href="/" class="bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs px-4 py-2 rounded-lg border border-gray-700 transition-colors font-semibold">
+                ⬅️ Kembali ke Dashboard
+            </a>
+        </header>
+
+        <!-- Filter & Search -->
+        <div class="flex flex-col md:flex-row gap-3 mb-6">
+            <input 
+                type="text" 
+                id="searchInput"
+                placeholder="Cari nama sesi..." 
+                onkeyup="filterTable()"
+                class="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-amber-500 flex-1"
+            >
+            <select 
+                id="typeFilter"
+                onchange="filterTable()"
+                class="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-amber-500"
+            >
+                <option value="">Semua Jenis</option>
+                <option value="Run">Lari</option>
+                <option value="WeightTraining">Strength</option>
+            </select>
+        </div>
+
+        <!-- Stats Summary -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-gray-800 p-4 rounded-xl border border-gray-700 text-center">
+                <span class="block text-xs text-gray-400 mb-1">Total Sesi</span>
+                <span class="text-2xl font-bold text-amber-400">{{ workouts|length }}</span>
+            </div>
+            <div class="bg-gray-800 p-4 rounded-xl border border-gray-700 text-center">
+                <span class="block text-xs text-gray-400 mb-1">Total Jarak</span>
+                <span class="text-2xl font-bold text-emerald-400">
+                    {{ "%.1f"|format(workouts|selectattr('jenis_olahraga', 'equalto', 'Run')|sum(attribute='jarak')) }} KM
+                </span>
+            </div>
+            <div class="bg-gray-800 p-4 rounded-xl border border-gray-700 text-center">
+                <span class="block text-xs text-gray-400 mb-1">Sesi Lari</span>
+                <span class="text-2xl font-bold text-cyan-400">
+                    {{ workouts|selectattr('jenis_olahraga', 'equalto', 'Run')|list|length }}
+                </span>
+            </div>
+            <div class="bg-gray-800 p-4 rounded-xl border border-gray-700 text-center">
+                <span class="block text-xs text-gray-400 mb-1">Sesi Strength</span>
+                <span class="text-2xl font-bold text-purple-400">
+                    {{ workouts|selectattr('jenis_olahraga', 'ne', 'Run')|list|length }}
+                </span>
+            </div>
+        </div>
+
+        <!-- Tabel -->
+        <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+            <table class="w-full text-left text-sm text-gray-300" id="historyTable">
+                <thead class="text-xs uppercase bg-gray-700 text-gray-400">
+                    <tr>
+                        <th class="p-3">Tanggal</th>
+                        <th class="p-3">Nama Sesi</th>
+                        <th class="p-3">Jenis</th>
+                        <th class="p-3">Jarak</th>
+                        <th class="p-3">Durasi</th>
+                        <th class="p-3">Pace</th>
+                        <th class="p-3">Avg HR</th>
+                        <th class="p-3 text-right">AKSI</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for w in workouts %}
+                    <tr class="border-b border-gray-700 hover:bg-gray-750/50 transition-colors" 
+                        data-type="{{ w.get('jenis_olahraga', '') }}"
+                        data-name="{{ w.get('nama_sesi', '') }}">
+                        <td class="p-3 font-medium text-white text-xs">{{ w.get('tanggal', '-') }}</td>
+                        <td class="p-3 text-gray-300 text-xs">{{ w.get('nama_sesi', '-') }}</td>
+                        <td class="p-3">
+                            {% if w.get('jenis_olahraga') == 'Run' %}
+                                <span class="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20">🏃 Lari</span>
+                            {% else %}
+                                <span class="text-[10px] bg-purple-500/10 text-purple-400 px-2 py-0.5 rounded border border-purple-500/20">🏋️ Strength</span>
+                            {% endif %}
+                        </td>
+                        <td class="p-3 text-emerald-400 font-bold">
+                            {% if w.get('jarak') %}{{ w['jarak'] }} KM{% else %}-{% endif %}
+                        </td>
+                        <td class="p-3 text-gray-300">
+                            {% if w.get('durasi_menit') %}{{ w['durasi_menit']|int }} mnt{% else %}-{% endif %}
+                        </td>
+                        <td class="p-3 font-mono text-amber-400">
+                            {% if w.get('avg_pace') %}⏱️ {{ w['avg_pace'] }}{% else %}-{% endif %}
+                        </td>
+                        <td class="p-3 text-rose-400">
+                            {% if w.get('avg_hr') %}💓 {{ w['avg_hr'] }} bpm{% else %}-{% endif %}
+                        </td>
+                        <td class="p-3 text-right">
+                            {% if w.get('jenis_olahraga') == 'Run' %}
+                            <button 
+                                onclick='showWorkoutDetail({{ w | tojson }})'
+                                class="bg-amber-600/20 hover:bg-amber-600/40 text-amber-400 text-[10px] px-2 py-1 rounded border border-amber-600/30 transition-all font-bold uppercase tracking-tighter"
+                            >
+                                🔍 Detail Splits
+                            </button>
+                            {% else %}
+                            <span class="text-gray-600 px-4">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="p-8 text-center text-gray-500 italic">
+                            Belum ada data aktivitas, cuy. Sync dulu dari Telegram!
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <p class="text-center text-xs text-gray-600 mt-4">Total {{ workouts|length }} aktivitas tersinkronisasi</p>
+    </div>
+
+    <!-- PENTING: KOMPONEN MODAL POP-UP DETAIL SPLITS -->
+    <div id="modalWorkoutDetail" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-gray-800 border border-gray-700 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+            <!-- Modal Header -->
+            <div class="p-4 border-b border-gray-700 flex justify-between items-center bg-gray-800/50">
+                <div>
+                    <h3 class="text-lg font-bold text-amber-400">📊 Detail Performa Lari</h3>
+                    <p id="detailWorkoutDate" class="text-xs text-gray-400 mt-0.5"></p>
+                </div>
+                <button onclick="document.getElementById('modalWorkoutDetail').classList.add('hidden')" class="text-gray-400 hover:text-white bg-gray-700/50 hover:bg-gray-700 p-1.5 rounded-lg transition-all">
+                    ✕
+                </button>
+            </div>
+            
+            <!-- Quick Summary Cards -->
+            <div class="grid grid-cols-3 gap-2 p-4 bg-gray-900/30 border-b border-gray-700">
+                <div class="bg-gray-800/80 p-3 rounded-xl border border-gray-700/50 text-center">
+                    <span class="block text-[10px] text-gray-400 uppercase tracking-wider mb-0.5">Total Jarak</span>
+                    <span id="detailWorkoutDistance" class="text-base font-black text-emerald-400"></span>
+                </div>
+                <div class="bg-gray-800/80 p-3 rounded-xl border border-gray-700/50 text-center">
+                    <span class="block text-[10px] text-gray-400 uppercase tracking-wider mb-0.5">Avg Pace</span>
+                    <span id="detailWorkoutPace" class="text-base font-black text-amber-400 font-mono"></span>
+                </div>
+                <div class="bg-gray-800/80 p-3 rounded-xl border border-gray-700/50 text-center">
+                    <span class="block text-[10px] text-gray-400 uppercase tracking-wider mb-0.5">Avg HR</span>
+                    <span id="detailWorkoutHR" class="text-base font-black text-rose-400"></span>
+                </div>
+            </div>
+
+            <!-- Splits Table Container -->
+            <div class="overflow-y-auto flex-1 p-4">
+                <table class="w-full text-left text-xs text-gray-300">
+                    <thead class="text-[10px] uppercase bg-gray-700/50 text-gray-400 sticky top-0">
+                        <tr>
+                            <th class="p-2.5">Lap/Km</th>
+                            <th class="p-2.5">Jarak</th>
+                            <th class="p-2.5">Pace</th>
+                            <th class="p-2.5">Waktu</th>
+                            <th class="p-2.5 text-right">Heart Rate</th>
+                        </tr>
+                    </thead>
+                    <tbody id="detailWorkoutSplitsBody">
+                        <!-- Di-inject via JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function filterTable() {
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            const type = document.getElementById('typeFilter').value.toLowerCase();
+            const rows = document.querySelectorAll('#historyTable tbody tr[data-type]');
+            
+            rows.forEach(row => {
+                const name = row.dataset.name.toLowerCase();
+                const rowType = row.dataset.type.toLowerCase();
+                const matchSearch = name.includes(search);
+                const matchType = type === '' || rowType === type;
+                row.style.display = matchSearch && matchType ? '' : 'none';
+            });
+        }
+
+        // PERBAIKAN: Mapping data disamakan menggunakan huruf kecil dari database
+        function showWorkoutDetail(workout) {
+            const modal = document.getElementById('modalWorkoutDetail');
+            const dateElem = document.getElementById('detailWorkoutDate');
+            const distElem = document.getElementById('detailWorkoutDistance');
+            const paceElem = document.getElementById('detailWorkoutPace');
+            const hrElem = document.getElementById('detailWorkoutHR');
+            const body = document.getElementById('detailWorkoutSplitsBody');
+
+            // Set Meta Data pake key huruf kecil
+            dateElem.innerText = `📅 Sesi Lari: ${workout.tanggal || '-'}`;
+            distElem.innerText = `${workout.jarak || '0'} KM`;
+            paceElem.innerText = workout.avg_pace || '-';
+            hrElem.innerText = `${workout.avg_hr || '-'} BPM`;
+
+            // Bersihkan Tabel
+            body.innerHTML = '';
+
+            // Inject Splits
+            if (workout.splits && workout.splits.length > 0) {
+                workout.splits.forEach(s => {
+                    const row = document.createElement('tr');
+                    row.className = 'border-b border-gray-700/50 hover:bg-gray-750/30 transition-colors';
+                    
+                    // Format waktu splits ke MM:SS
+                    let displayTime = '-';
+                    if (s.split_elapsed_time) {
+                        const m = Math.floor(s.split_elapsed_time / 60);
+                        const sec = s.split_elapsed_time % 60;
+                        displayTime = `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+                    }
+
+                    row.innerHTML = `
+                        <td class="p-2.5 font-bold text-gray-500">Lap ${s.lap_index}</td>
+                        <td class="p-2.5 font-semibold text-white">${s.split_distance} km</td>
+                        <td class="p-2.5 font-mono text-amber-400 font-bold">${s.split_pace}</td>
+                        <td class="p-2.5 text-gray-300">${displayTime}</td>
+                        <td class="p-2.5 text-right font-semibold ${s.avg_hr ? 'text-rose-400' : 'text-gray-600'}">${s.avg_hr ? s.avg_hr + ' bpm' : '-'}</td>
+                    `;
+                    body.appendChild(row);
+                });
+            } else {
+                body.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="p-8 text-center text-gray-500 italic">
+                            🚀 Wah, data splits per kilometer untuk sesi ini belum ditarik dari Strava, cuy.
+                        </td>
+                    </tr>
+                `;
+            }
+
+            // Munculkan Modal
+            modal.classList.remove('hidden');
+        }
+
+        // Close modal kalau klik di luar card luar
+        window.onclick = function(event) {
+            const modal = document.getElementById('modalWorkoutDetail');
+            if (event.target == modal) {
+                modal.classList.add('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
