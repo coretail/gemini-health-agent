@@ -122,16 +122,23 @@
                                 <th class="p-3">Tanggal</th>
                                 <th class="p-3">Jarak</th>
                                 <th class="p-3">Pace</th>
-                                <th class="p-3">Avg HR</th>
+                                <th class="p-3 text-right">Aksi</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for w in workouts %}
-                            <tr class="border-b border-gray-700 hover:bg-gray-750">
+                            <tr class="border-b border-gray-700 hover:bg-gray-750/50 transition-colors">
                                 <td class="p-3 font-medium text-white">{{ w['Tanggal'] }}</td>
                                 <td class="p-3 text-emerald-400 font-bold">{{ w['Jarak'] }} KM</td>
                                 <td class="p-3">⏱️ {{ w['Avg Pace (min/km)'] }}</td>
-                                <td class="p-3">💓 {{ w['Avg HR (BPM)'] }} bpm</td>
+                                <td class="p-3 text-right">
+                                    <button 
+                                        onclick='showWorkoutDetail({{ w | tojson }})'
+                                        class="bg-amber-600/20 hover:bg-amber-600/40 text-amber-400 text-[10px] px-2 py-1 rounded border border-amber-600/30 transition-all font-bold uppercase tracking-tighter"
+                                    >
+                                        🔍 Detail Splits
+                                    </button>
+                                </td>
                             </tr>
                             {% else %}
                             <tr>
@@ -240,7 +247,7 @@
                 </div>
 
             </div>
-            <div id="modalAddNutrisi" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm">
+            <div id="modalAddNutrisi" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm p-4">
                 <div class="bg-gray-800 border border-gray-700 p-6 rounded-xl shadow-2xl w-full max-w-md">
                     <div class="flex justify-between items-center mb-4">
                         <h3 class="text-lg font-bold text-cyan-400">➕ Input Nutrisi Manual</h3>
@@ -265,6 +272,56 @@
                             <span>🤖 Analisis & Simpan</span>
                         </button>
                     </form>
+                </div>
+            </div>
+
+            <!-- MODAL DETAIL WORKOUT (SPLITS) -->
+            <div id="modalWorkoutDetail" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 backdrop-blur-md p-4">
+                <div class="bg-gray-800 border border-gray-700 p-6 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+                    <div class="flex justify-between items-center mb-6">
+                        <div>
+                            <h3 class="text-xl font-bold text-amber-400 flex items-center gap-2">
+                                📊 Detail Performa Lari
+                            </h3>
+                            <p id="detailWorkoutDate" class="text-gray-400 text-xs mt-1"></p>
+                        </div>
+                        <button onclick="document.getElementById('modalWorkoutDetail').classList.add('hidden')" class="bg-gray-700 hover:bg-gray-600 text-gray-300 w-8 h-8 rounded-full flex items-center justify-center transition-colors">
+                            &times;
+                        </button>
+                    </div>
+
+                    <!-- Ringkasan Singkat -->
+                    <div class="grid grid-cols-3 gap-4 mb-6">
+                        <div class="bg-gray-900/50 p-3 rounded-xl border border-gray-700/50 text-center">
+                            <span class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Total Jarak</span>
+                            <span id="detailWorkoutDistance" class="text-lg font-bold text-emerald-400"></span>
+                        </div>
+                        <div class="bg-gray-900/50 p-3 rounded-xl border border-gray-700/50 text-center">
+                            <span class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Avg Pace</span>
+                            <span id="detailWorkoutPace" class="text-lg font-bold text-amber-400 font-mono"></span>
+                        </div>
+                        <div class="bg-gray-900/50 p-3 rounded-xl border border-gray-700/50 text-center">
+                            <span class="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">Avg HR</span>
+                            <span id="detailWorkoutHR" class="text-lg font-bold text-rose-400"></span>
+                        </div>
+                    </div>
+
+                    <div class="overflow-y-auto flex-grow rounded-xl border border-gray-700">
+                        <table class="w-full text-left text-sm text-gray-300">
+                            <thead class="sticky top-0 bg-gray-700 text-gray-400 text-[10px] uppercase">
+                                <tr>
+                                    <th class="p-3">Lap/Km</th>
+                                    <th class="p-3">Jarak</th>
+                                    <th class="p-3">Pace</th>
+                                    <th class="p-3">Waktu</th>
+                                    <th class="p-3 text-right">Heart Rate</th>
+                                </tr>
+                            </thead>
+                            <tbody id="detailWorkoutSplitsBody">
+                                <!-- Data splits akan di-inject via JS -->
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
@@ -469,6 +526,52 @@
                 }
             });
         });
+
+        // FUNGSI TAMPILKAN MODAL DETAIL SPLITS
+        function showWorkoutDetail(workout) {
+            const modal = document.getElementById('modalWorkoutDetail');
+            const dateElem = document.getElementById('detailWorkoutDate');
+            const distElem = document.getElementById('detailWorkoutDistance');
+            const paceElem = document.getElementById('detailWorkoutPace');
+            const hrElem = document.getElementById('detailWorkoutHR');
+            const body = document.getElementById('detailWorkoutSplitsBody');
+
+            // Set Meta Data
+            dateElem.innerText = `📅 Sesi Lari: ${workout.Tanggal}`;
+            distElem.innerText = `${workout.Jarak} KM`;
+            paceElem.innerText = workout['Avg Pace (min/km)'];
+            hrElem.innerText = `${workout['Avg HR (BPM)'] || '-'} BPM`;
+
+            // Bersihkan Tabel
+            body.innerHTML = '';
+
+            // Inject Splits
+            if (workout.splits && workout.splits.length > 0) {
+                workout.splits.forEach(s => {
+                    const row = document.createElement('tr');
+                    row.className = 'border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors';
+                    row.innerHTML = `
+                        <td class="p-3 font-bold text-gray-500">Lap ${s.lap_index}</td>
+                        <td class="p-3 font-semibold text-white">${s.split_distance} km</td>
+                        <td class="p-3 font-mono text-amber-400 font-bold">${s.split_pace}</td>
+                        <td class="p-3 text-gray-300">${s.formatted_time}</td>
+                        <td class="p-3 text-right font-semibold ${s.avg_hr ? 'text-rose-400' : 'text-gray-600'}">${s.avg_hr ? s.avg_hr + ' bpm' : '-'}</td>
+                    `;
+                    body.appendChild(row);
+                });
+            } else {
+                body.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="p-8 text-center text-gray-500 italic">
+                            🚀 Wah, data splits per kilometer untuk sesi ini belum ditarik dari Strava, cuy.
+                        </td>
+                    </tr>
+                `;
+            }
+
+            // Munculkan Modal
+            modal.classList.remove('hidden');
+        }
     </script>
 </body>
 </html>

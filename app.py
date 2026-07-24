@@ -482,6 +482,27 @@ async def read_dashboard(request: Request):
             if not df_run.empty:
                 df_run['Tanggal'] = pd.to_datetime(df_run['Tanggal']).dt.strftime('%Y-%m-%d %H:%M')
             workout_data = df_run.tail(5).to_dict(orient="records")
+
+            # 🔥 AMBIL DATA SPLITS UNTUK WORKOUT LARI
+            run_ids = [str(w.get('id')) for w in workout_data if w.get('id')]
+            if run_ids:
+                try:
+                    # Ambil splits yang memiliki workout_id di dalam list run_ids
+                    ids_filter = ",".join(run_ids)
+                    res_s = supabase_client.get(f"/workout_splits?workout_id=in.({ids_filter})&order=lap_index.asc")
+                    all_splits = res_s.json()
+                    
+                    # Petakan splits ke masing-masing workout
+                    for w in workout_data:
+                        w_id = str(w.get('id'))
+                        # Filter splits untuk workout ini
+                        w['splits'] = [s for s in all_splits if str(s.get('workout_id')) == w_id]
+                        # Format elapsed_time ke MM:SS untuk tampilan
+                        for s in w['splits']:
+                            et = s.get('split_elapsed_time', 0)
+                            s['formatted_time'] = f"{int(et // 60):02d}:{int(et % 60):02d}"
+                except Exception as e_s:
+                    print(f"⚠️ Gagal ambil data splits: {e_s}")
             
             df_strength = df_workout[df_workout['Jenis Olahraga'].str.lower() != 'run'].copy()
             if not df_strength.empty:

@@ -174,7 +174,9 @@ async def strava_sync(user_id=None, refresh_token=None):
         payload_workout["user_id"] = user_id
     
     try:
-        res_post = supabase_client.post("/workouts", json=payload_workout)
+        res_post = supabase_client.post("/workouts", json=payload_workout, headers={"Prefer": "return=representation"})
+        print(f"🔍 Status: {res_post.status_code}")
+        print(f"🔍 Response: {res_post.text}")
         if res_post.status_code not in [200, 201]:
             print(f"❌ Gagal simpan workout utama: {res_post.text}")
             return False
@@ -207,26 +209,29 @@ async def strava_sync(user_id=None, refresh_token=None):
                 if hasattr(detail_activity, 'splits_metric') and detail_activity.splits_metric:
                     splits_payload = []
                     for idx, split in enumerate(detail_activity.splits_metric, 1):
-                        # Kalkulasi Pace MM:SS
+                        # Kalkulasi Pace MM:SS dari m/s secara presisi
                         s_pace = "-"
-                        if split.average_speed > 0:
-                            s_total_min = 16.6667 / float(split.average_speed)
-                            s_pace = f"{int(s_total_min):02d}:{int((s_total_min - int(s_total_min)) * 60):02d}"
+                        avg_speed = getattr(split, 'average_speed', None)
+                        if avg_speed is not None and float(avg_speed) > 0:
+                            total_seconds = 1000.0 / float(avg_speed)
+                            m_min, s_sec = divmod(total_seconds, 60)
+                            s_pace = f"{int(m_min):02d}:{int(s_sec):02d}"
                         
                         splits_payload.append({
                             "workout_id": workout_id,
                             "lap_index": idx,
-                            "split_distance": round(float(split.distance) / 1000, 2),
-                            "split_elapsed_time": int(split.elapsed_time),
+                            "split_distance": round(float(split.distance) / 1000, 2) if getattr(split, 'distance', None) is not None else 0.0,
+                            "split_elapsed_time": int(split.elapsed_time) if getattr(split, 'elapsed_time', None) is not None else 0,
                             "split_pace": s_pace,
-                            "avg_hr": int(split.average_heartrate) if hasattr(split, 'average_heartrate') and split.average_heartrate else None
+                            "avg_hr": int(split.average_heartrate) if getattr(split, 'average_heartrate', None) is not None else None
                         })
                     
                     if splits_payload:
-                        res_splits = supabase_client.post("/workout_splits", json=splits_payload)
-                        print(f"✅ Berhasil simpan {len(splits_payload)} splits ke cloud!")
+                        async with httpx.AsyncClient(base_url=f"{SUPABASE_URL or ''}/rest/v1", headers=supabase_headers) as client:
+                            res_splits = await client.post("/workout_splits", json=splits_payload)
+                        print(f"✅ Berhasil simpan {len(splits_payload)} splits ke cloud secara asinkron! Status: {res_splits.status_code}")
             except Exception as e_split:
-                print(f"⚠️ Gagal tarik/simpan detail splits: {e_split}")
+                print(f"⚠️ Gagal tarik/simpan detail splits secara asinkron: {e_split}")
 
         return True
     except Exception as e:
@@ -365,7 +370,7 @@ async def strava_sync_1_month(user_id=None, refresh_token=None):
                 payload["user_id"] = user_id
             
             # Insert Workout Utama
-            res_p = supabase_client.post("/workouts", json=payload)
+            res_p = supabase_client.post("/workouts", json=payload, headers={"Prefer": "return=representation"})
             if res_p.status_code in [200, 201]:
                 new_count_final += 1
                 # Ambil ID untuk splits
@@ -387,23 +392,27 @@ async def strava_sync_1_month(user_id=None, refresh_token=None):
                         detail = strava_client.get_activity(act.id)
                         if hasattr(detail, 'splits_metric') and detail.splits_metric:
                             s_list = []
-                            for i, s in enumerate(detail.splits_metric, 1):
+                            for idx, s in enumerate(detail.splits_metric, 1):
                                 sp_pace = "-"
-                                if s.average_speed > 0:
-                                    sp_min = 16.6667 / float(s.average_speed)
-                                    sp_pace = f"{int(sp_min):02d}:{int((sp_min - int(sp_min)) * 60):02d}"
+                                avg_speed = getattr(s, 'average_speed', None)
+                                if avg_speed is not None and float(avg_speed) > 0:
+                                    total_seconds = 1000.0 / float(avg_speed)
+                                    m_min, s_sec = divmod(total_seconds, 60)
+                                    sp_pace = f"{int(m_min):02d}:{int(s_sec):02d}"
                                 
                                 s_list.append({
                                     "workout_id": w_id,
-                                    "lap_index": i,
-                                    "split_distance": round(float(s.distance) / 1000, 2),
-                                    "split_elapsed_time": int(s.elapsed_time),
+                                    "lap_index": idx,
+                                    "split_distance": round(float(s.distance) / 1000, 2) if getattr(s, 'distance', None) is not None else 0.0,
+                                    "split_elapsed_time": int(s.elapsed_time) if getattr(s, 'elapsed_time', None) is not None else 0,
                                     "split_pace": sp_pace,
-                                    "avg_hr": int(s.average_heartrate) if hasattr(s, 'average_heartrate') and s.average_heartrate else None
+                                    "avg_hr": int(s.average_heartrate) if getattr(s, 'average_heartrate', None) is not None else None
                                 })
                             if s_list:
-                                supabase_client.post("/workout_splits", json=s_list)
-                    except: pass
+                                async with httpx.AsyncClient(base_url=f"{SUPABASE_URL or ''}/rest/v1", headers=supabase_headers) as client:
+                                    await client.post("/workout_splits", json=s_list)
+                    except Exception as e_split:
+                        print(f"⚠️ Gagal tarik/simpan detail splits bulk: {e_split}")
             
         return f"💾 Sebanyak {new_count_final} data baru (beserta splits) berhasil di-push ke cloud Supabase!"
     except Exception as e:
