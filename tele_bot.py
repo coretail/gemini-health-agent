@@ -91,14 +91,15 @@ def get_strava_access_token(refresh_token_input=None):
 # ─── HANDLER COMMAND /START & /HELP ─────────────────────────────────
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
+    telegram_id = str(message.from_user.id)
     welcome_text = (
-        "<b>🏃‍♂️🤖 HEALTH TRACKER AGENT CLOUD READY! 🤖🏃‍♂️</b>\n\n"
-        "Halo Abdullah Dzaki! Sistem bot lu sekarang udah terkoneksi ke Supabase Singapore.\n\n"
-        "<b>Menu Perintah Sakti:</b>\n"
-        "▶️ /sync_strava - Tarik aktivitas lari terakhir dari Strava langsung ke Cloud\n"
-        "▶️ /sync_bulan  - Tarik seluruh aktivitas 30 hari ke belakang tanpa duplikat\n\n"
-        "📷 <b>Fitur Vision AI:</b>\n"
-        "Kirim foto makanan + caption porsi ke sini buat langsung di-analisis & disimpan ke Cloud database!"
+        "<b>🏃‍♂️🤖 HEALTH TRACKER AGENT</b>\n\n"
+        f"Telegram ID kamu: <code>{telegram_id}</code>\n"
+        "Copy ID di atas ke halaman Profil di web untuk menghubungkan akun!\n\n"
+        "<b>Menu:</b>\n"
+        "▶️ /sync_strava - Sync aktivitas terbaru\n"
+        "▶️ /sync_bulan - Sync 30 hari terakhir\n"
+        "📷 Kirim foto makanan untuk analisis nutrisi!"
     )
     bot.reply_to(message, welcome_text, parse_mode='HTML')
 
@@ -252,11 +253,15 @@ def sync_strava_data(message):
         # Untuk bot pribadi, kita coba ambil profil pertama dari Supabase untuk dapat User ID-nya
         u_id, r_token = None, None
         try:
-            res_p = supabase_client.get("/profiles?limit=1")
+            telegram_id = str(message.from_user.id)
+            res_p = supabase_client.get(f"/profiles?telegram_id=eq.{telegram_id}")
             p_data = res_p.json()
-            if p_data:
-                u_id = p_data[0].get("id")
-                r_token = p_data[0].get("strava_refresh_token")
+            if not p_data:
+                bot.reply_to(message, "⚠️ Akun kamu belum terhubung! Daftar dulu di web, lalu masukkan Telegram ID kamu di halaman Profil.")
+                STRAVA_SYNC_LOCK = False
+                return
+            u_id = p_data[0].get("id")
+            r_token = p_data[0].get("strava_refresh_token")
         except:
             pass
 
@@ -432,11 +437,15 @@ def sync_strava_bulan(message):
         # Ambil user_id dan token dari profil pertama (untuk bot pribadi)
         u_id, r_token = None, None
         try:
-            res_p = supabase_client.get("/profiles?limit=1")
+            telegram_id = str(message.from_user.id)
+            res_p = supabase_client.get(f"/profiles?telegram_id=eq.{telegram_id}")
             p_data = res_p.json()
-            if p_data:
-                u_id = p_data[0].get("id")
-                r_token = p_data[0].get("strava_refresh_token")
+            if not p_data:
+                bot.reply_to(message, "⚠️ Akun kamu belum terhubung! Daftar dulu di web, lalu masukkan Telegram ID kamu di halaman Profil.")
+                STRAVA_SYNC_LOCK = False
+                return
+            u_id = p_data[0].get("id")
+            r_token = p_data[0].get("strava_refresh_token")
         except:
             pass
 

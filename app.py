@@ -759,7 +759,8 @@ async def update_profile(
     target_latihan: str = Form(...),
     target_waktu: str = Form(""),
     tanggal_race: str = Form(""),
-    catatan_agent: str = Form("")
+    catatan_agent: str = Form(""),
+    telegram_id: str = Form("")
 ):
     token = request.cookies.get("sb_access_token")
     if not token:
@@ -780,7 +781,8 @@ async def update_profile(
         "target_latihan": target_latihan,
         "target_waktu": target_waktu,
         "tanggal_race": tanggal_race,
-        "catatan_agent": catatan_agent
+        "catatan_agent": catatan_agent,
+        "telegram_id": telegram_id
     }
     
     try:
