@@ -9,3 +9,4 @@ Pillow
 pyTelegramBotAPI
 stravalib
 google-genai
+python-dotenv
