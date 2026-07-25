@@ -10,3 +10,4 @@ pyTelegramBotAPI
 stravalib
 google-genai
 python-dotenv
+APScheduler
