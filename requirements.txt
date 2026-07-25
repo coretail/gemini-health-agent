@@ -4,3 +4,4 @@ supabase
 httpx
 jinja2
 python-multipart
+pandas
