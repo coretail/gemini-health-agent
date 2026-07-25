@@ -428,6 +428,7 @@ async def read_dashboard(request: Request):
     waktu_terakhir_lari = "Belum ada data"
     latest_pace = "-"  
     latest_hr = "-"
+    df_run = pd.DataFrame()
     acwr_chart_data = {"dates": [], "acwr": []}
     readiness_score = 100
     readiness_msg = "Belum ada data latihan. Baterai full siap tempur!"
@@ -663,6 +664,71 @@ async def read_dashboard(request: Request):
     else:
         print("🤖 [Agent Evaluasi] Meracik analisis performa baru via Gemini...")
         load_history_str = ", ".join([f"{d}: Load {l}" for d, l in zip(graph_data["dates"], graph_data["loads"])])
+        
+        # --- LOGIKA BARU: HITUNG PREDIKSI RIEGEL BERDASARKAN BEST EFFORT >= 5 KM ---
+        def pace_to_seconds(pace_str):
+            if not pace_str or pace_str == "-":
+                return float('inf')
+            try:
+                parts = str(pace_str).split(':')
+                if len(parts) == 2:
+                    return int(parts[0]) * 60 + int(parts[1])
+            except:
+                pass
+            return float('inf')
+
+        best_run = None
+        best_pace_secs = float('inf')
+        
+        # Ambil maksimal 30 aktivitas lari terakhir dari histori
+        df_run_history = df_run.copy() if not df_run.empty else pd.DataFrame()
+        if not df_run_history.empty:
+            df_run_history = df_run_history.tail(30)
+            # Filter aktivitas lari terbaik (Fastest Pace) yang memiliki jarak minimal 5 KM
+            df_run_5km = df_run_history[df_run_history['Jarak'] >= 5.0]
+            
+            for idx_h, row_h in df_run_5km.iterrows():
+                p_str = row_h.get('Avg Pace (min/km)')
+                secs = pace_to_seconds(p_str)
+                if secs < best_pace_secs:
+                    best_pace_secs = secs
+                    best_run = row_h
+
+        # Gunakan data dari lari terbaik (Best Effort >= 5 KM) jika ada
+        if best_run is not None:
+            acuan_nama = "Aktivitas Terbaik (Best Effort >= 5 KM)"
+            d1 = float(best_run.get('Jarak', 5.0))
+            t1 = float(best_run.get('Durasi (Menit)', 30.0))
+            best_pace_val = best_run.get('Avg Pace (min/km)', '-')
+            best_hr_val = best_run.get('Avg HR (BPM)', '-')
+        else:
+            # Fallback ke aktivitas lari terbaru (terakhir) jika tidak ada lari >= 5 KM
+            acuan_nama = "Aktivitas Terbaru (Fallback)"
+            if not df_run.empty:
+                latest_run_fb = df_run.iloc[-1]
+                d1 = float(latest_run_fb.get('Jarak', 5.0))
+                t1 = float(latest_run_fb.get('Durasi (Menit)', 30.0))
+                best_pace_val = latest_run_fb.get('Avg Pace (min/km)', '-')
+                best_hr_val = latest_run_fb.get('Avg HR (BPM)', '-')
+            else:
+                acuan_nama = "Default Fallback"
+                d1 = 10.0
+                t1 = 50.0
+                best_pace_val = "05:00"
+                best_hr_val = "150"
+
+        # Kalkulasi Formula Riegel: T2 = T1 * (42.195 / D1)^1.06
+        try:
+            t2 = t1 * ((42.195 / d1) ** 1.06)
+            total_seconds_t2 = int(t2 * 60)
+            hours_t2 = total_seconds_t2 // 3600
+            minutes_t2 = (total_seconds_t2 % 3600) // 60
+            seconds_t2 = total_seconds_t2 % 60
+            predicted_marathon_time = f"{hours_t2:02d}:{minutes_t2:02d}:{seconds_t2:02d}"
+        except Exception as e_riegel:
+            print(f"⚠️ Gagal kalkulasi Riegel: {e_riegel}")
+            predicted_marathon_time = "Gagal dihitung"
+
         prompt_evaluasi_lari = f"""
 Kamu adalah pelatih lari elit pribadi untuk {profile.get('nama')}.
 Target Utama: {profile.get('target_latihan')} ({profile.get('target_waktu')})
@@ -676,10 +742,17 @@ DATA METRIK LATIHAN HARI INI:
 - Histori Beban Sesi: [{load_history_str}]
 - Data Lari Terakhir: Pace {latest_pace} min/km, HR {latest_hr} BPM.
 
+ACUAN PREDIKSI MARATHON (FORMULA RIEGEL):
+- Tipe Acuan: {acuan_nama}
+- Jarak Acuan (D1): {d1:.2f} KM
+- Waktu Acuan (T1): {t1:.1f} Menit (Pace {best_pace_val} min/km, HR {best_hr_val} BPM)
+- Jarak Target (D2): 42.195 KM (Full Marathon)
+- Hasil Prediksi Waktu Finish Riegel (T2): {predicted_marathon_time}
+
 TUGAS KAMU (Maksimal 4 kalimat padat):
 1. Evaluasi kondisi beban latihannya (ACWR & Readiness) hari ini.
 2. Ingatkan soal "{sisa_hari_teks}" agar dia bisa mengatur pacing program latihannya.
-3. Berikan "Prediksi Realistis Finish Time" berdasarkan pace rata-rata terakhirnya, bandingkan dengan target {profile.get('target_waktu')}, apakah dia *on-track* atau harus memperbaiki sesuatu?
+3. Sebutkan hasil "Prediksi Realistis Finish Time" ({predicted_marathon_time}) yang dihitung menggunakan Formula Riegel dari {acuan_nama} miliknya, lalu bandingkan secara langsung dengan target {profile.get('target_waktu')}, apakah dia *on-track* atau harus memperbaiki sesuatu?
 """
         try:
             resp_eval = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt_evaluasi_lari)
