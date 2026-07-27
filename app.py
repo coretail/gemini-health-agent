@@ -707,7 +707,7 @@ async def read_dashboard(request: Request):
 
         # 3. PROSES STRATEGI RIEGEL (Ganti eksponen ke 1.08 biar gak terlalu optimis)
         try:
-            t2 = t1 * ((42.195 / d1) ** 1.085)
+            t2 = t1 * ((42.195 / d1) ** 1.07)
             total_seconds_t2 = int(t2 * 60)
             hours_t2 = total_seconds_t2 // 3600
             minutes_t2 = (total_seconds_t2 % 3600) // 60
