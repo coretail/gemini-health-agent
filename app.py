@@ -680,21 +680,10 @@ async def read_dashboard(request: Request):
         best_run = None
         best_pace_secs = float('inf')
         
-        # Ambil maksimal 30 aktivitas lari terakhir dari histori
-        df_run_history = df_run.copy() if not df_run.empty else pd.DataFrame()
-        if not df_run_history.empty:
-            df_run_history = df_run_history.tail(30)
-            # Filter aktivitas lari terbaik (Fastest Pace) yang memiliki jarak minimal 5 KM
-            df_run_5km = df_run_history[df_run_history['Jarak'] >= 5.0]
-            
-            for idx_h, row_h in df_run_5km.iterrows():
-                p_str = row_h.get('Avg Pace (min/km)')
-                secs = pace_to_seconds(p_str)
-                if secs < best_pace_secs:
-                    best_pace_secs = secs
-                    best_run = row_h
+        # 1. TARUH INI PALING ATAS (SEBELUM BLOK IF-ELSE) BUAT PENGAMAN
+        predicted_marathon_time = "00:00:00"  
 
-        # Gunakan data dari lari terbaik (Best Effort >= 5 KM) jika ada
+        # 2. BARU MASUK KE LOGIKA SELEKSI ACUAN
         if best_run is not None:
             acuan_nama = "Aktivitas Terbaik (Best Effort >= 5 KM)"
             d1 = float(best_run.get('Jarak', 10.0))
@@ -702,7 +691,6 @@ async def read_dashboard(request: Request):
             best_pace_val = best_run.get('Avg Pace (min/km)', '-')
             best_hr_val = best_run.get('Avg HR (BPM)', '-')
         else:
-            # Fallback ke aktivitas lari terbaru (terakhir) jika tidak ada lari >= 5 KM
             acuan_nama = "Aktivitas Terbaru (Fallback)"
             if not df_run.empty:
                 latest_run_fb = df_run.iloc[-1]
@@ -711,16 +699,15 @@ async def read_dashboard(request: Request):
                 best_pace_val = latest_run_fb.get('Avg Pace (min/km)', '-')
                 best_hr_val = latest_run_fb.get('Avg HR (BPM)', '-')
             else:
-                predicted_marathon_time = "00:00:00"
                 acuan_nama = "Default Fallback"
                 d1 = 10.0
                 t1 = 60.0
                 best_pace_val = "06:00"
                 best_hr_val = "150"
 
-        # Kalkulasi Formula Riegel: T2 = T1 * (42.195 / D1)^1.06
+        # 3. PROSES STRATEGI RIEGEL (Ganti eksponen ke 1.08 biar gak terlalu optimis)
         try:
-            t2 = t1 * ((42.195 / d1) ** 1.06)
+            t2 = t1 * ((42.195 / d1) ** 1.085)
             total_seconds_t2 = int(t2 * 60)
             hours_t2 = total_seconds_t2 // 3600
             minutes_t2 = (total_seconds_t2 % 3600) // 60
