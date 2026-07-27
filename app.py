@@ -795,7 +795,10 @@ PENTING: Di bagian deskripsi ('desc'), hubungkan fungsi zona tersebut dengan tar
         "waktu_terakhir_lari": waktu_terakhir_lari, "acwr_chart_data": acwr_chart_data, "readiness_score": readiness_score,
         "readiness_msg": readiness_msg, "readiness_color": readiness_color, "nutrisi_chart_data": nutrisi_chart_data,
         "macro_totals": macro_totals, "macro_today": macro_today, "evaluasi_nutrisi_mingguan": evaluasi_nutrisi_mingguan,
-        "zones_data": zones_data
+        "zones_data": zones_data,
+        "predicted_marathon_time": predicted_marathon_time,  
+        "acuan_nama": acuan_nama,                            
+        "best_pace_acuan": best_pace_val
     }
     return templates.TemplateResponse(request, "dashboard.html", context_data)
 
