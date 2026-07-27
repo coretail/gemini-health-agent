@@ -711,6 +711,7 @@ async def read_dashboard(request: Request):
                 best_pace_val = latest_run_fb.get('Avg Pace (min/km)', '-')
                 best_hr_val = latest_run_fb.get('Avg HR (BPM)', '-')
             else:
+                predicted_marathon_time = "00:00:00"
                 acuan_nama = "Default Fallback"
                 d1 = 10.0
                 t1 = 60.0
