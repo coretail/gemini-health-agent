@@ -697,8 +697,8 @@ async def read_dashboard(request: Request):
         # Gunakan data dari lari terbaik (Best Effort >= 5 KM) jika ada
         if best_run is not None:
             acuan_nama = "Aktivitas Terbaik (Best Effort >= 5 KM)"
-            d1 = float(best_run.get('Jarak', 5.0))
-            t1 = float(best_run.get('Durasi (Menit)', 30.0))
+            d1 = float(best_run.get('Jarak', 10.0))
+            t1 = float(best_run.get('Durasi (Menit)', 60.0))
             best_pace_val = best_run.get('Avg Pace (min/km)', '-')
             best_hr_val = best_run.get('Avg HR (BPM)', '-')
         else:
