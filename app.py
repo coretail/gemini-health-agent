@@ -435,6 +435,11 @@ async def read_dashboard(request: Request):
     readiness_color = "text-emerald-400"
     zones_data = []
     
+    # Default variables untuk Prediksi Marathon agar tidak NameError
+    predicted_marathon_time = "00:00:00"
+    acuan_nama = "Aktivitas Terbaru"
+    best_pace_val = "-"
+    
     nutrition_data = []
     nutrisi_harian = {} 
     evaluasi_nutrisi_mingguan = "Belum ada data nutrisi minggu ini, cuy. Yuk mulai foto makananmu!"
@@ -656,13 +661,18 @@ async def read_dashboard(request: Request):
     else:
         readiness_color, readiness_msg = "text-rose-400", "🛑 Otot masih fatigue & butuh istirahat. Wajib Rest Day atau Active Recovery hari ini!"
 
-    # GATEKEEPER CACHE AGENT EVALUASI
-    global EVALUASI_CACHE, ZONES_CACHE
-    if EVALUASI_CACHE["tanggal_lari_terakhir"] == waktu_terakhir_lari and EVALUASI_CACHE["evaluasi_hari_ini"]:
-        evaluasi_hari_ini = EVALUASI_CACHE["evaluasi_hari_ini"]
-        evaluasi_minggu_lalu = EVALUASI_CACHE["evaluasi_minggu_lalu"]
-    else:
-        print("🤖 [Agent Evaluasi] Meracik analisis performa baru via Gemini...")
+    # GATEKEEPER CACHE AGENT EVALUASI (DENGAN PENYIMPANAN DATABASE STATIC)
+    evaluasi_hari_ini = None
+    latest_run_id = None
+    
+    if not df_run.empty:
+        latest_run_record = df_run.iloc[-1]
+        latest_run_id = latest_run_record.get('id')
+        evaluasi_hari_ini = latest_run_record.get('agent_evaluation')
+        
+    # Jika kolom tersebut kosong (belum ter-generate), baru berikan fallback panggil Agent AI sekali saja
+    if not evaluasi_hari_ini or pd.isna(evaluasi_hari_ini) or str(evaluasi_hari_ini).strip() in ["", "None", "nan"]:
+        print("🤖 [Agent Evaluasi] Kolom database kosong, meracik analisis performa baru via Gemini as fallback...")
         load_history_str = ", ".join([f"{d}: Load {l}" for d, l in zip(graph_data["dates"], graph_data["loads"])])
         
         # --- LOGIKA BARU: HITUNG PREDIKSI RIEGEL BERDASARKAN BEST EFFORT >= 5 KM ---
@@ -680,10 +690,19 @@ async def read_dashboard(request: Request):
         best_run = None
         best_pace_secs = float('inf')
         
-        # 1. TARUH INI PALING ATAS (SEBELUM BLOK IF-ELSE) BUAT PENGAMAN
-        predicted_marathon_time = "00:00:00"  
+        # BARU MASUK KE LOGIKA SELEKSI ACUAN
+        if not df_run.empty:
+            df_run_history = df_run.copy()
+            df_run_history = df_run_history.tail(30)
+            df_run_5km = df_run_history[df_run_history['Jarak'] >= 5.0]
+            
+            for idx_h, row_h in df_run_5km.iterrows():
+                p_str = row_h.get('Avg Pace (min/km)')
+                secs = pace_to_seconds(p_str)
+                if secs < best_pace_secs:
+                    best_pace_secs = secs
+                    best_run = row_h
 
-        # 2. BARU MASUK KE LOGIKA SELEKSI ACUAN
         if best_run is not None:
             acuan_nama = "Aktivitas Terbaik (Best Effort >= 5 KM)"
             d1 = float(best_run.get('Jarak', 10.0))
@@ -705,7 +724,7 @@ async def read_dashboard(request: Request):
                 best_pace_val = "06:00"
                 best_hr_val = "150"
 
-        # 3. PROSES STRATEGI RIEGEL (Ganti eksponen ke 1.08 biar gak terlalu optimis)
+        # 3. PROSES STRATEGI RIEGEL
         try:
             t2 = t1 * ((42.195 / d1) ** 1.07)
             total_seconds_t2 = int(t2 * 60)
@@ -745,11 +764,23 @@ TUGAS KAMU (Maksimal 4 kalimat padat):
         try:
             resp_eval = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt_evaluasi_lari)
             evaluasi_hari_ini = resp_eval.text.strip()
-            evaluasi_minggu_lalu = f"Rasio ACWR minggu ini ada di angka {latest_acwr}. Ikuti arahan Coach di sebelah kiri untuk jadwal latihan hari ini!"
-            EVALUASI_CACHE = {"tanggal_lari_terakhir": waktu_terakhir_lari, "evaluasi_hari_ini": evaluasi_hari_ini, "evaluasi_minggu_lalu": evaluasi_minggu_lalu}
+            
+            # Simpan hasil evaluasi secara asinkron/PATCH ke database agar pemanggilan berikutnya tidak boros kuota
+            if latest_run_id:
+                try:
+                    supabase_client.patch(f"/workouts?id=eq.{latest_run_id}", json={
+                        "agent_evaluation": evaluasi_hari_ini,
+                        "eval_timestamp": datetime.now().isoformat()
+                    })
+                    print("💾 Berhasil menyimpan evaluasi fallback ke database!")
+                except Exception as e_save:
+                    print(f"⚠️ Gagal menyimpan evaluasi fallback ke database: {e_save}")
+                    
         except Exception as e:
             print(f"❌ Error Agent Evaluasi Lari: {e}")
             evaluasi_hari_ini = f"Gagal memuat evaluasi AI. Kondisi ACWR: {latest_acwr}."
+            
+    evaluasi_minggu_lalu = f"Rasio ACWR minggu ini ada di angka {latest_acwr}. Ikuti arahan Coach di sebelah kiri untuk jadwal latihan hari ini!"
 
     # GATEKEEPER CACHE AGENT ZONA TRAINING
     if ZONES_CACHE["tanggal_lari_terakhir"] == waktu_terakhir_lari and ZONES_CACHE["data"]:

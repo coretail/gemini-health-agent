@@ -233,6 +233,12 @@ async def strava_sync(user_id=None, refresh_token=None):
                         async with httpx.AsyncClient(base_url=f"{SUPABASE_URL or ''}/rest/v1", headers=supabase_headers) as client:
                             res_splits = await client.post("/workout_splits", json=splits_payload)
                         print(f"✅ Berhasil simpan {len(splits_payload)} splits ke cloud secara asinkron! Status: {res_splits.status_code}")
+                
+                # 🔥 LANGSUNG TRIGER AGENT AI UNTUK EVALUASI LATIHAN DAN SIMPAN KE DATABASE
+                try:
+                    await generate_and_save_workout_evaluation(user_id, workout_id)
+                except Exception as e_agent:
+                    print(f"⚠️ Gagal generate/simpan evaluasi otomatis paska sync lari: {e_agent}")
             except Exception as e_split:
                 print(f"⚠️ Gagal tarik/simpan detail splits secara asinkron: {e_split}")
 
@@ -428,6 +434,12 @@ async def strava_sync_1_month(user_id=None, refresh_token=None):
                             if s_list:
                                 async with httpx.AsyncClient(base_url=f"{SUPABASE_URL or ''}/rest/v1", headers=supabase_headers) as client:
                                     await client.post("/workout_splits", json=s_list)
+                        
+                        # 🔥 TRIGER AGENT AI EVALUASI SETIAP WORKOUT BARU SUKSES DI-BULK SINKRONISASI
+                        try:
+                            await generate_and_save_workout_evaluation(user_id, w_id)
+                        except Exception as e_agent:
+                            print(f"⚠️ Gagal generate/simpan evaluasi otomatis paska sync bulk lari: {e_agent}")
                     except Exception as e_split:
                         print(f"⚠️ Gagal tarik/simpan detail splits bulk: {e_split}")
             
@@ -575,6 +587,213 @@ Jika makanan ini tidak sejalan dengan targetnya, beri teguran suportif!
             
     except Exception as e:
         bot.reply_to(message, f"❌ Gagal memproses foto makanan, cuy. Error: {e}")
+
+# ==================================================================
+# 🤖 3. FUNGSI GENERATE EVALUASI AGENT AI & SIMPAN KE DATABASE
+# ==================================================================
+async def generate_and_save_workout_evaluation(user_id, workout_id):
+    """Fungsi mandiri untuk menembak Agent AI dan menyimpan evaluasi lari ke database Supabase"""
+    print(f"🤖 [Agent Evaluasi] Mulai menembak Agent AI untuk User: {user_id}, Workout: {workout_id}...")
+    try:
+        # 1. Ambil data profil user
+        res_p = supabase_client.get(f"/profiles?id=eq.{user_id}")
+        p_data = res_p.json()
+        profile = p_data[0] if p_data else {}
+        
+        # 2. Ambil histori workout user
+        res_w = supabase_client.get(f"/workouts?user_id=eq.{user_id}&order=tanggal.asc")
+        workout_records = res_w.json()
+        
+        if not workout_records:
+            print("⚠️ Tidak ada riwayat workout untuk meracik evaluasi.")
+            return
+            
+        # Konversi ke DataFrame Pandas untuk memproses ACWR, Readiness, & Best Effort
+        import pandas as pd
+        df_supabase_w = pd.DataFrame(workout_records)
+        df_workout = df_supabase_w.rename(columns={
+            'tanggal': 'Tanggal',
+            'jenis_olahraga': 'Jenis Olahraga',
+            'durasi_menit': 'Durasi (Menit)',
+            'avg_hr': 'Avg HR (BPM)',
+            'avg_pace': 'Avg Pace (min/km)',
+            'jarak': 'Jarak'
+        })
+        
+        # Ambil 7 sesi terakhir untuk grafik/beban
+        df_graph = df_workout.tail(7)
+        dates_graph = []
+        loads_graph = []
+        for _, row in df_graph.iterrows():
+            durasi = float(row.get('Durasi (Menit)', 0))
+            hr = float(row.get('Avg HR (BPM)', 0)) if pd.notna(row.get('Avg HR (BPM)')) else 130
+            training_load = round((durasi * hr) / 100, 1)
+            dates_graph.append(str(row.get('Tanggal', '-')).split()[0].split('T')[0])
+            loads_graph.append(training_load)
+            
+        load_history_str = ", ".join([f"{d}: Load {l}" for d, l in zip(dates_graph, loads_graph)])
+        
+        # Filter lari
+        df_run = df_workout[df_workout['Jenis Olahraga'].str.lower() == 'run'].copy()
+        
+        # === KALKULASI ACWR ===
+        df_acwr = df_workout.copy()
+        df_acwr['Date'] = pd.to_datetime(df_acwr['Tanggal']).dt.strftime('%Y-%m-%d')
+        df_acwr['HR_Clean'] = pd.to_numeric(df_acwr['Avg HR (BPM)'], errors='coerce').fillna(130)
+        df_acwr['Dur_Clean'] = pd.to_numeric(df_acwr['Durasi (Menit)'], errors='coerce').fillna(0)
+        df_acwr['Daily_Load'] = (df_acwr['Dur_Clean'] * df_acwr['HR_Clean']) / 100
+        
+        daily_loads_dict = df_acwr.groupby('Date')['Daily_Load'].sum().to_dict()
+        
+        today_date = datetime.now()
+        dates_35 = [(today_date - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(34, -1, -1)]
+        loads_35 = [daily_loads_dict.get(d, 0.0) for d in dates_35]
+        
+        acwr_vals = []
+        for i in range(28, 35):
+            acute_load = sum(loads_35[i-6 : i+1]) / 7     
+            chronic_load = sum(loads_35[i-27 : i+1]) / 28 
+            acwr_score = round(acute_load / chronic_load, 2) if chronic_load > 0 else 0.0
+            acwr_vals.append(acwr_score)
+            
+        latest_acwr = acwr_vals[-1] if acwr_vals else 0.0
+        
+        # Ambil lari terakhir
+        latest_pace = "-"
+        latest_hr = "-"
+        waktu_terakhir_lari = "Belum ada data"
+        if not df_run.empty:
+            latest_run = df_run.iloc[-1]
+            latest_pace = latest_run.get('Avg Pace (min/km)', '-')
+            latest_hr = latest_run.get('Avg HR (BPM)', '-')
+            waktu_terakhir_lari = str(latest_run.get('Tanggal', 'Hari Ini')).replace('T', ' ')[:16]
+            
+        # Readiness
+        yesterday_date = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+        yesterday_load = daily_loads_dict.get(yesterday_date, 0.0)
+        if latest_acwr > 1.5 or yesterday_load > 150:
+            readiness_score = 45
+        elif latest_acwr > 1.3 or yesterday_load > 90:
+            readiness_score = 70
+        else:
+            readiness_score = 100
+            
+        if readiness_score >= 80:
+            readiness_msg = "🔥 Kondisi Prima! Otot dan sendi udah recovery. Gaspol buat Interval atau Long Run hari ini."
+        elif readiness_score >= 50:
+            readiness_msg = "⚠️ Recovery setengah jalan. Hindari speed session, mending hajar Easy Run santai aja di Zone 2."
+        else:
+            readiness_msg = "🛑 Otot masih fatigue & butuh istirahat. Wajib Rest Day atau Active Recovery hari ini!"
+            
+        # Riegel Formula Best Effort
+        def pace_to_seconds(pace_str):
+            if not pace_str or pace_str == "-":
+                return float('inf')
+            try:
+                parts = str(pace_str).split(':')
+                if len(parts) == 2:
+                    return int(parts[0]) * 60 + int(parts[1])
+            except:
+                pass
+            return float('inf')
+
+        best_run = None
+        best_pace_secs = float('inf')
+        df_run_history = df_run.copy() if not df_run.empty else pd.DataFrame()
+        if not df_run_history.empty:
+            df_run_history = df_run_history.tail(30)
+            df_run_5km = df_run_history[df_run_history['Jarak'] >= 5.0]
+            for idx_h, row_h in df_run_5km.iterrows():
+                p_str = row_h.get('Avg Pace (min/km)')
+                secs = pace_to_seconds(p_str)
+                if secs < best_pace_secs:
+                    best_pace_secs = secs
+                    best_run = row_h
+
+        if best_run is not None:
+            acuan_nama = "Aktivitas Terbaik (Best Effort >= 5 KM)"
+            d1 = float(best_run.get('Jarak', 10.0))
+            t1 = float(best_run.get('Durasi (Menit)', 60.0))
+            best_pace_val = best_run.get('Avg Pace (min/km)', '-')
+            best_hr_val = best_run.get('Avg HR (BPM)', '-')
+        else:
+            acuan_nama = "Aktivitas Terbaru (Fallback)"
+            if not df_run.empty:
+                latest_run_fb = df_run.iloc[-1]
+                d1 = float(latest_run_fb.get('Jarak', 10.0))
+                t1 = float(latest_run_fb.get('Durasi (Menit)', 60.0))
+                best_pace_val = latest_run_fb.get('Avg Pace (min/km)', '-')
+                best_hr_val = latest_run_fb.get('Avg HR (BPM)', '-')
+            else:
+                acuan_nama = "Default Fallback"
+                d1 = 10.0
+                t1 = 60.0
+                best_pace_val = "05:00"
+                best_hr_val = "150"
+
+        try:
+            t2 = t1 * ((42.195 / d1) ** 1.07)
+            total_seconds_t2 = int(t2 * 60)
+            hours_t2 = total_seconds_t2 // 3600
+            minutes_t2 = (total_seconds_t2 % 3600) // 60
+            seconds_t2 = total_seconds_t2 % 60
+            predicted_marathon_time = f"{hours_t2:02d}:{minutes_t2:02d}:{seconds_t2:02d}"
+        except Exception as e_riegel:
+            print(f"⚠️ Gagal kalkulasi Riegel: {e_riegel}")
+            predicted_marathon_time = "Gagal dihitung"
+
+        # Race Countdown
+        tanggal_race_str = profile.get('tanggal_race', '')
+        sisa_hari_teks = "Belum set jadwal race"
+        if tanggal_race_str:
+            try:
+                tgl_race = datetime.strptime(tanggal_race_str.split('T')[0], "%Y-%m-%d")
+                sisa_hari = (tgl_race - datetime.now()).days
+                if sisa_hari > 0: sisa_hari_teks = f"H-{sisa_hari} menuju Race Day"
+                elif sisa_hari == 0: sisa_hari_teks = "🔥 RACE DAY! GASPOL! 🔥"
+                else: sisa_hari_teks = "Race sudah terlewati"
+            except: pass
+
+        prompt_evaluasi_lari = f"""
+Kamu adalah pelatih lari elit pribadi untuk {profile.get('nama')}.
+Target Utama: {profile.get('target_latihan')} ({profile.get('target_waktu')})
+Jadwal Race: {tanggal_race_str} ({sisa_hari_teks})
+Gaya Komunikasi Klien: "{profile.get('catatan_agent')}"
+Biometrik: TB {profile.get('tinggi_badan')} cm, BB {profile.get('berat_badan')} kg.
+
+DATA METRIK LATIHAN HARI INI:
+- Skor Readiness: {readiness_score}% (Kondisi: {readiness_msg})
+- ACWR: {latest_acwr} (Aman 0.8-1.3)
+- Histori Beban Sesi: [{load_history_str}]
+- Data Lari Terakhir: Pace {latest_pace} min/km, HR {latest_hr} BPM.
+
+ACUAN PREDIKSI MARATHON (FORMULA RIEGEL):
+- Tipe Acuan: {acuan_nama}
+- Jarak Acuan (D1): {d1:.2f} KM
+- Waktu Acuan (T1): {t1:.1f} Menit (Pace {best_pace_val} min/km, HR {best_hr_val} BPM)
+- Jarak Target (D2): 42.195 KM (Full Marathon)
+- Hasil Prediksi Waktu Finish Riegel (T2): {predicted_marathon_time}
+
+TUGAS KAMU (Maksimal 4 kalimat padat):
+1. Evaluasi kondisi beban latihannya (ACWR & Readiness) hari ini.
+2. Ingatkan soal "{sisa_hari_teks}" agar dia bisa mengatur pacing program latihannya.
+3. Sebutkan hasil "Prediksi Realistis Finish Time" ({predicted_marathon_time}) yang dihitung menggunakan Formula Riegel dari {acuan_nama} miliknya, lalu bandingkan secara langsung dengan target {profile.get('target_waktu')}, apakah dia *on-track* atau harus memperbaiki sesuatu?
+"""
+        
+        # Panggil Gemini API v2.5 untuk evaluasi
+        resp_eval = ai_client.models.generate_content(model='gemini-2.5-flash', contents=prompt_evaluasi_lari)
+        evaluasi_hari_ini = resp_eval.text.strip()
+        print(f"✅ Evaluasi baru berhasil diracik: '{evaluasi_hari_ini}'")
+        
+        # Simpan ke Supabase!
+        res_patch = supabase_client.patch(f"/workouts?id=eq.{workout_id}", json={
+            "agent_evaluation": evaluasi_hari_ini,
+            "eval_timestamp": datetime.now().isoformat()
+        })
+        print(f"💾 Status Simpan Evaluasi ke Database: {res_patch.status_code}")
+        
+    except Exception as e:
+        print(f"❌ Gagal generate/simpan evaluasi otomatis: {e}")
 
 # ─── RUN SERVER BOT STANDBY ─────────────────────────────────────────
 if __name__ == '__main__':
