@@ -93,23 +93,23 @@
         <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-gray-700 pt-4">
             <div class="bg-gray-800/40 p-4 rounded-lg border border-emerald-500/20">
                 <h4 class="text-xs font-semibold uppercase tracking-wider text-emerald-400 mb-1">📋 Evaluasi Latihan ({{ waktu_terakhir_lari }})</h4>
+                <div class="mt-3 pt-3 border-t border-gray-700/50 flex flex-wrap gap-3">
+                    <div class="flex items-center gap-1.5 text-[11px] text-gray-500">
+                        <span class="text-gray-600">📊 Acuan:</span>
+                        <span class="text-gray-400">{{ acuan_nama }}</span>
+                    </div>
+                    <div class="flex items-center gap-1.5 text-[11px]">
+                        <span class="text-gray-600">🏁 Prediksi Finish FM:</span>
+                        <span class="font-mono font-bold text-cyan-400">{{ predicted_marathon_time }}</span>
+                    </div>
+                    <div class="flex items-center gap-1.5 text-[11px]">
+                        <span class="text-gray-600">⏱️ Pace Acuan:</span>
+                        <span class="font-mono text-amber-400">{{ best_pace_acuan }}</span>
+                    </div>
+                </div>
                 <p class="text-sm text-gray-300 leading-relaxed">{{ evaluasi_hari_ini }}</p>
             </div>
-            <!-- Tambah ini setelah paragraf evaluasi_hari_ini -->
-            <div class="mt-3 pt-3 border-t border-gray-700/50 flex flex-wrap gap-3">
-                <div class="flex items-center gap-1.5 text-[11px] text-gray-500">
-                    <span class="text-gray-600">📊 Acuan:</span>
-                    <span class="text-gray-400">{{ acuan_nama }}</span>
-                </div>
-                <div class="flex items-center gap-1.5 text-[11px]">
-                    <span class="text-gray-600">🏁 Prediksi Finish FM:</span>
-                    <span class="font-mono font-bold text-cyan-400">{{ predicted_marathon_time }}</span>
-                </div>
-                <div class="flex items-center gap-1.5 text-[11px]">
-                    <span class="text-gray-600">⏱️ Pace Acuan:</span>
-                    <span class="font-mono text-amber-400">{{ best_pace_acuan }}</span>
-                </div>
-            </div>
+            
 
             <div class="bg-gray-800/60 p-4 rounded-lg border border-gray-700 relative overflow-hidden shadow-md">
                 
