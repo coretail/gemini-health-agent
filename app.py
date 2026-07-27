@@ -395,6 +395,7 @@ async def delete_nutrition(request: Request, tanggal: str = Form(...)):
 
 @app.get("/", response_class=HTMLResponse)
 async def read_dashboard(request: Request):
+    global ZONES_CACHE
     token = request.cookies.get("sb_access_token")
     if not token:
         return RedirectResponse(url="/login", status_code=303)
