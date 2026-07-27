@@ -706,15 +706,15 @@ async def read_dashboard(request: Request):
             acuan_nama = "Aktivitas Terbaru (Fallback)"
             if not df_run.empty:
                 latest_run_fb = df_run.iloc[-1]
-                d1 = float(latest_run_fb.get('Jarak', 5.0))
-                t1 = float(latest_run_fb.get('Durasi (Menit)', 30.0))
+                d1 = float(latest_run_fb.get('Jarak', 10.0))
+                t1 = float(latest_run_fb.get('Durasi (Menit)', 60.0))
                 best_pace_val = latest_run_fb.get('Avg Pace (min/km)', '-')
                 best_hr_val = latest_run_fb.get('Avg HR (BPM)', '-')
             else:
                 acuan_nama = "Default Fallback"
                 d1 = 10.0
-                t1 = 50.0
-                best_pace_val = "05:00"
+                t1 = 60.0
+                best_pace_val = "06:00"
                 best_hr_val = "150"
 
         # Kalkulasi Formula Riegel: T2 = T1 * (42.195 / D1)^1.06
