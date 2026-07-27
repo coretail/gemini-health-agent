@@ -4,23 +4,24 @@ Personal AI health tracker yang menggabungkan data lari dari Strava, analisis nu
 
 ## Features
 
-- **Auto-sync Strava** — tarik data lari otomatis setiap 15 menit ke Supabase
-- **Nutrition AI** — foto makanan → analisis kalori & makro instan via Gemini Vision
-- **AI Running Coach** — zona latihan & evaluasi performa personal berdasarkan data aktual
-- **Readiness Score** — kalkulasi ACWR (Acute:Chronic Workload Ratio) untuk cek kondisi tubuh
-- **Telegram Bot** — sync Strava & log nutrisi langsung dari HP
-- **Multi-user** — auth via Google (Supabase), data ter-isolasi per user
+- **Real-time Strava Webhook & Sync** — Tarik data lari otomatis dan instan dari Strava langsung ke Supabase tanpa delay polling.
+- **Event-driven AI Coach** — Evaluasi performa lari personal diracik oleh Gemini hanya saat ada aktivitas baru masuk, menjaga efisiensi token dan bebas dari boncos kuota RPD.
+- **Sport Science Metrics** — Kalkulasi otomatis skor *Training Readiness* dan *ACWR (Acute:Chronic Workload Ratio)* untuk mendeteksi tingkat kelelahan otot serta meminimalisir risiko cedera pelari.
+- **Adjusted Race Prediction** — Prediksi waktu finish Full Marathon menggunakan Formula Riegel dengan eksponen yang telah di-tweak (`1.08`) agar hasil prediksi lebih menapak bumi bagi pelari rekreasional.
+- **Nutrition AI** — Foto makanan → analisis kalori & makro instan via Gemini Vision langsung dari HP.
+- **Telegram Bot Integration** — Kemudahan sync Strava, log nutrisi harian, dan cek status kesehatan lewat chat bot.
+- **Multi-user Architecture** — Sistem otentikasi via Google (Supabase Auth) dengan data yang terisolasi aman per user.
 
 ## Tech Stack
 
 | Layer | Tech |
 |---|---|
 | Backend | FastAPI (Python) |
-| AI | Google Gemini 2.5 Flash |
+| AI | Google Gemini 2.0 Flash (Text & Vision) |
 | Database | Supabase (PostgreSQL) |
-| Running Data | Strava API |
+| Running Data | Strava API (Webhook & OAuth2) |
 | Bot | pyTelegramBotAPI |
-| Scheduler | APScheduler |
+| Optimizer | In-Memory Caching (ZONES_CACHE) |
 | Frontend | Jinja2 + Tailwind CSS |
 
 ## Getting Started
@@ -28,7 +29,7 @@ Personal AI health tracker yang menggabungkan data lari dari Strava, analisis nu
 ### 1. Clone repo
 
 ```bash
-git clone https://github.com/coretail/gemini-health-agent.git
+git clone [https://github.com/coretail/gemini-health-agent.git](https://github.com/coretail/gemini-health-agent.git)
 cd gemini-health-agent
 ```
 
