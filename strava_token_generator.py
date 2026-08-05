@@ -1,5 +1,5 @@
 import requests
-from dotenv import load_model, load_dotenv
+from dotenv import load_dotenv
 
 # Masukkan data asli dari dashboard Strava lu
 CLIENT_ID = "STRAVA_CLIENT_ID"
@@ -22,6 +22,6 @@ if response.status_code == 200:
     data = response.json()
     print("\n✅ BERHASIL TUKAR TOKEN!")
     print(f"Token Baru Lu (Ganti di strava_test.py) : {data['access_token']}")
-    print(f"Refresh Token (Simpan buat nanti)     : {data['refresh_token']}")
+    print(f"Refresh Token (Simpan buat nanti) : {data['refresh_token']}")
 else:
     print(f"\n❌ Gagal menukar token. Error: {response.text}")

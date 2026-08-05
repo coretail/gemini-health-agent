@@ -291,88 +291,40 @@ def sync_strava_data(message):
 # ==================================================================
 async def strava_sync_1_month(user_id=None, refresh_token=None):
     print(f"🔄 [Bulk] Menarik data 1 bulan... (User ID: {user_id or 'Default'})")
-    
-    
     fresh_token = get_strava_access_token(refresh_token)
     if not fresh_token:
         return "Gagal dapet token Strava, cuy."
 
     tiga_puluh_hari_lalu = datetime.now() - timedelta(days=30)
     strava_client = Client(access_token=fresh_token)
-    
+
     try:
         activities = list(strava_client.get_activities(after=tiga_puluh_hari_lalu, limit=100))
         if not activities:
             return "📭 Kagak ada aktivitas sama sekali dalam 30 hari terakhir."
-            
+
         # Ambil data yang sudah ada untuk filter duplikat
         query_path = f"/workouts?select=tanggal"
         if user_id:
             query_path += f"&user_id=eq.{user_id}"
-            
         res_all = supabase_client.get(query_path)
         existing_dates = [str(r.get('tanggal', '')).replace('T', ' ')[:16] for r in res_all.json()]
-        
-        records_w = []
-        new_count = 0
-        for act in reversed(activities):
-            print(f"🔍 Nama: {act.name} | Tanggal: {act.start_date_local}")
-        for act in reversed(activities):
-            act_date = act.start_date_local.strftime("%Y-%m-%d %H:%M")
-            if act_date in existing_dates:
-                continue
-                
-            act_type = str(act.type).replace("root='", "").replace("'", "")
-            nama_sesi = str(act.name) if getattr(act, 'name', None) else "Untitled Run"
-            act_duration = int(act.elapsed_time / 60) if act.elapsed_time else 0
-            avg_hr = int(act.average_heartrate) if getattr(act, 'average_heartrate', None) else None
-            jarak_km = round(float(act.distance) / 1000, 2) if getattr(act, 'distance', None) else 0.0
-            
-            avg_pace = None
-            if getattr(act, 'average_speed', None) and act_type == "Run":
-                speed_ms = float(act.average_speed)
-                if speed_ms > 0:
-                    total_minutes = 16.6667 / speed_ms
-                    avg_pace = f"{int(total_minutes):02d}:{int((total_minutes - int(total_minutes)) * 60):02d}"
 
-            payload = {
-                "tanggal": act_date,
-                "nama_sesi": nama_sesi,
-                "jenis_olahraga": act_type,
-                "durasi_menit": float(act_duration),
-                "avg_hr": avg_hr,
-                "avg_pace": avg_pace,
-                "jarak": jarak_km
-            }
-            if user_id:
-                payload["user_id"] = user_id
-                
-            records_w.append(payload)
-            new_count += 1
-            
-            
-        if records_w:
-            # Kita post satu-satu atau bulk? Kalau bulk kita susah dapet ID per baris untuk splits.
-            # Agar simpel & akurat untuk splits, kita post satu-satu saja di dalam loop ini
-            # Tapi untuk efisiensi, kita gunakan payload records_w yang sudah ada dan modifikasi loop di atas
-            pass
-
-        # RE-LOGIC: Loop ulang untuk insert per baris agar bisa narik splits
+        # Insert per baris (bukan bulk) supaya bisa dapat workout_id masing-masing untuk splits
         new_count_final = 0
         for act in reversed(activities):
             act_date = act.start_date_local.strftime("%Y-%m-%d %H:%M")
+            print(f"🔍 Nama: {act.name} | Tanggal: {act.start_date_local}")
+
             if act_date in existing_dates:
                 continue
-                
+
             act_type = str(act.type).replace("root='", "").replace("'", "")
-            
-            # PEMBERSIH BUG: Nama sesi sekarang di-update tiap iterasi biar gak seragam semua
             nama_sesi = str(act.name) if getattr(act, 'name', None) else "Untitled Run"
-            
             act_duration = int(act.elapsed_time / 60) if act.elapsed_time else 0
             avg_hr = int(act.average_heartrate) if getattr(act, 'average_heartrate', None) else None
             jarak_km = round(float(act.distance) / 1000, 2) if getattr(act, 'distance', None) else 0.0
-            
+
             avg_pace = None
             if getattr(act, 'average_speed', None) and act_type == "Run":
                 speed_ms = float(act.average_speed)
@@ -391,59 +343,66 @@ async def strava_sync_1_month(user_id=None, refresh_token=None):
             }
             if user_id:
                 payload["user_id"] = user_id
-            
+
             # Insert Workout Utama
             res_p = supabase_client.post("/workouts", json=payload, headers={"Prefer": "return=representation"})
-            if res_p.status_code in [200, 201]:
-                new_count_final += 1
-                # Ambil ID untuk splits
-                w_id = None
+            if res_p.status_code not in [200, 201]:
+                continue
+
+            new_count_final += 1
+
+            # Ambil ID untuk splits
+            w_id = None
+            try:
+                r_json = res_p.json()
+                w_id = r_json[0].get("id") if isinstance(r_json, list) else r_json.get("id")
+            except Exception:
+                pass
+
+            if not w_id and user_id:
+                # Fallback ambil ID berdasarkan tanggal & user
+                res_f = supabase_client.get(f"/workouts?user_id=eq.{user_id}&tanggal=eq.{act_date}")
+                f_data = res_f.json()
+                if f_data:
+                    w_id = f_data[0].get("id")
+
+            # Tarik Splits jika Lari
+            if act_type == "Run" and w_id:
                 try:
-                    r_json = res_p.json()
-                    w_id = r_json[0].get("id") if isinstance(r_json, list) else r_json.get("id")
-                except: pass
+                    detail = strava_client.get_activity(act.id)
+                    if hasattr(detail, 'splits_metric') and detail.splits_metric:
+                        s_list = []
+                        for idx, s in enumerate(detail.splits_metric, 1):
+                            sp_pace = "-"
+                            avg_speed = getattr(s, 'average_speed', None)
+                            if avg_speed is not None and float(avg_speed) > 0:
+                                total_seconds = 1000.0 / float(avg_speed)
+                                m_min, s_sec = divmod(total_seconds, 60)
+                                sp_pace = f"{int(m_min):02d}:{int(s_sec):02d}"
 
-                if not w_id and user_id:
-                    # Fallback ambil ID berdasarkan tanggal & user
-                    res_f = supabase_client.get(f"/workouts?user_id=eq.{user_id}&tanggal=eq.{act_date}")
-                    f_data = res_f.json()
-                    if f_data: w_id = f_data[0].get("id")
+                            s_list.append({
+                                "workout_id": w_id,
+                                "lap_index": idx,
+                                "split_distance": round(float(s.distance) / 1000, 2) if getattr(s, 'distance', None) is not None else 0.0,
+                                "split_elapsed_time": int(s.elapsed_time) if getattr(s, 'elapsed_time', None) is not None else 0,
+                                "split_pace": sp_pace,
+                                "avg_hr": int(s.average_heartrate) if getattr(s, 'average_heartrate', None) is not None else None
+                            })
 
-                # Tarik Splits jika Lari
-                if act_type == "Run" and w_id:
-                    try:
-                        detail = strava_client.get_activity(act.id)
-                        if hasattr(detail, 'splits_metric') and detail.splits_metric:
-                            s_list = []
-                            for idx, s in enumerate(detail.splits_metric, 1):
-                                sp_pace = "-"
-                                avg_speed = getattr(s, 'average_speed', None)
-                                if avg_speed is not None and float(avg_speed) > 0:
-                                    total_seconds = 1000.0 / float(avg_speed)
-                                    m_min, s_sec = divmod(total_seconds, 60)
-                                    sp_pace = f"{int(m_min):02d}:{int(s_sec):02d}"
-                                
-                                s_list.append({
-                                    "workout_id": w_id,
-                                    "lap_index": idx,
-                                    "split_distance": round(float(s.distance) / 1000, 2) if getattr(s, 'distance', None) is not None else 0.0,
-                                    "split_elapsed_time": int(s.elapsed_time) if getattr(s, 'elapsed_time', None) is not None else 0,
-                                    "split_pace": sp_pace,
-                                    "avg_hr": int(s.average_heartrate) if getattr(s, 'average_heartrate', None) is not None else None
-                                })
-                            if s_list:
-                                async with httpx.AsyncClient(base_url=f"{SUPABASE_URL or ''}/rest/v1", headers=supabase_headers) as client:
-                                    await client.post("/workout_splits", json=s_list)
-                        
+                        if s_list:
+                            async with httpx.AsyncClient(base_url=f"{SUPABASE_URL or ''}/rest/v1", headers=supabase_headers) as client:
+                                await client.post("/workout_splits", json=s_list)
+
                         # 🔥 TRIGER AGENT AI EVALUASI SETIAP WORKOUT BARU SUKSES DI-BULK SINKRONISASI
                         try:
                             await generate_and_save_workout_evaluation(user_id, w_id)
                         except Exception as e_agent:
                             print(f"⚠️ Gagal generate/simpan evaluasi otomatis paska sync bulk lari: {e_agent}")
-                    except Exception as e_split:
-                        print(f"⚠️ Gagal tarik/simpan detail splits bulk: {e_split}")
-            
+                except Exception as e_split:
+                    print(f"⚠️ Gagal tarik/simpan detail splits bulk: {e_split}")
+
         return f"💾 Sebanyak {new_count_final} data baru (beserta splits) berhasil di-push ke cloud Supabase!"
+
     except Exception as e:
         return f"❌ Terjadi error migrasi bulk: {repr(e)}"
 
